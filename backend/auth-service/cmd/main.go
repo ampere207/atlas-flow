@@ -60,6 +60,21 @@ func main() {
 	router.GET("/health", func(c *gin.Context) {
 		middleware.RespondJSON(c.Writer, http.StatusOK, map[string]string{"status": "healthy"})
 	})
+	router.GET("/auth", func(c *gin.Context) {
+		middleware.RespondJSON(c.Writer, http.StatusOK, map[string]interface{}{
+			"service": "auth-service",
+			"routes":  []string{"POST /auth/signup", "POST /auth/login", "POST /auth/refresh"},
+		})
+	})
+	router.GET("/auth/signup", func(c *gin.Context) {
+		middleware.RespondError(c.Writer, http.StatusMethodNotAllowed, "use POST /auth/signup")
+	})
+	router.GET("/auth/login", func(c *gin.Context) {
+		middleware.RespondError(c.Writer, http.StatusMethodNotAllowed, "use POST /auth/login")
+	})
+	router.GET("/auth/refresh", func(c *gin.Context) {
+		middleware.RespondError(c.Writer, http.StatusMethodNotAllowed, "use POST /auth/refresh")
+	})
 
 	// Auth routes
 	router.POST("/auth/signup", authHandler.SignUp)

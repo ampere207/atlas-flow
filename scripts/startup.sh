@@ -3,6 +3,20 @@
 
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$SCRIPT_DIR/../.env.local" ]; then
+    set -a
+    . <(tr -d '\r' < "$SCRIPT_DIR/../.env.local")
+    set +a
+elif [ -f "$SCRIPT_DIR/../.env" ]; then
+    set -a
+    . <(tr -d '\r' < "$SCRIPT_DIR/../.env")
+    set +a
+fi
+
+DB_USER="${DB_USER:-atlasflow}"
+DB_NAME="${DB_NAME:-atlasflow}"
+
 echo "╔════════════════════════════════════════════════════════════════╗"
 echo "║        Atlas Flow - Distributed Workflow Orchestration        ║"
 echo "║                    Complete System Demo                        ║"
@@ -32,19 +46,31 @@ sleep 2
 echo -e "${GREEN}✓ Cleanup complete${NC}"
 echo ""
 
-# Start all services
-echo -e "${BLUE}[3/6]${NC} Starting infrastructure and orchestrator..."
+# Build images once here instead of rebuilding during demo runs.
+echo -e "${BLUE}[3/6]${NC} Building service images (with BuildKit caching)..."
+DOCKER_BUILDKIT=1 docker-compose build auth-service workflow-service frontend worker-1 worker-2 worker-3
+echo -e "${GREEN}✓ Service images built${NC}"
+echo ""
+
+# Start infrastructure and apply schema once here.
+echo -e "${BLUE}[4/6]${NC} Starting infrastructure and applying migrations..."
 docker-compose up -d postgres redis nats
 echo "   Waiting for services to be healthy..."
 sleep 5
-docker-compose up -d workflow-service
-echo "   Waiting for orchestrator to be ready..."
-sleep 3
-echo -e "${GREEN}✓ Infrastructure started (PostgreSQL, Redis, NATS, Orchestrator)${NC}"
+docker-compose exec -T postgres psql -U "$DB_USER" -d "$DB_NAME" -f /docker-entrypoint-initdb.d/001_init_schema.sql
+docker-compose exec -T postgres psql -U "$DB_USER" -d "$DB_NAME" -f /docker-entrypoint-initdb.d/002_phase2_runtime.sql
+echo -e "${GREEN}✓ Database migrations applied${NC}"
+echo ""
+
+echo -e "${BLUE}[5/6]${NC} Starting application services..."
+docker-compose up -d auth-service workflow-service frontend
+echo "   Waiting for orchestrator, auth service, and frontend to be ready..."
+sleep 5
+echo -e "${GREEN}✓ Infrastructure started (PostgreSQL, Redis, NATS, Auth, Orchestrator, Frontend)${NC}"
 echo ""
 
 # Start demo workers
-echo -e "${BLUE}[4/6]${NC} Starting demo workers..."
+echo -e "${BLUE}[6/6]${NC} Starting demo workers..."
 docker-compose up -d worker-1 worker-2 worker-3
 echo "   Waiting for workers to register..."
 sleep 5
@@ -55,7 +81,7 @@ echo -e "  • Worker 3: All task types (capacity: 10)"
 echo ""
 
 # Check running containers
-echo -e "${BLUE}[5/6]${NC} Verifying all services are running..."
+echo -e "${BLUE}[6/6]${NC} Verifying all services are running..."
 RUNNING=$(docker-compose ps --services --filter "status=running" | wc -l)
 echo -e "${GREEN}✓ Services running:${NC}"
 docker-compose ps
@@ -68,12 +94,16 @@ echo ""
 echo -e "${YELLOW}═══════════════════════════════════════════════════════════════${NC}"
 echo -e "${GREEN}Atlas Flow is now running!${NC}"
 echo ""
-echo -e "📍 ${BLUE}API Endpoints:${NC}"
+echo -e "${BLUE}🌐 Web Interfaces:${NC}"
+echo -e "   • Frontend Dashboard: ${YELLOW}http://localhost:3000${NC}"
+echo ""
+echo -e "${BLUE}📍 API Endpoints:${NC}"
 echo -e "   • Orchestrator API: ${YELLOW}http://localhost:8002${NC}"
 echo -e "   • Health Check: ${YELLOW}curl http://localhost:8002/health${NC}"
 echo ""
 echo -e "📊 ${BLUE}Monitoring:${NC}"
 echo -e "   • View orchestrator logs: ${YELLOW}docker-compose logs -f workflow-service${NC}"
+echo -e "   • View frontend logs: ${YELLOW}docker-compose logs -f frontend${NC}"
 echo -e "   • View worker-1 logs: ${YELLOW}docker-compose logs -f worker-1${NC}"
 echo -e "   • View worker-2 logs: ${YELLOW}docker-compose logs -f worker-2${NC}"
 echo -e "   • View worker-3 logs: ${YELLOW}docker-compose logs -f worker-3${NC}"

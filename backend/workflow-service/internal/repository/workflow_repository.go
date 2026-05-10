@@ -103,8 +103,10 @@ func (r *WorkflowRepository) AddTask(task *models.Task) error {
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
 	`
 
+	assignedWorker := sql.NullString{String: task.AssignedWorkerID, Valid: task.AssignedWorkerID != ""}
+	
 	_, err := r.db.Exec(query,
-		task.ID, task.WorkflowID, task.TaskType, task.Name, task.Payload, task.State, task.AssignedWorkerID,
+		task.ID, task.WorkflowID, task.TaskType, task.Name, task.Payload, task.State, assignedWorker,
 		task.RetryCount, task.MaxRetries, task.DependsOn, task.AvailableAt, task.StartedAt, task.CompletedAt,
 		task.FailedAt, task.ErrorMessage, task.CreatedAt, task.UpdatedAt,
 	)
@@ -132,13 +134,17 @@ func (r *WorkflowRepository) ListTasksByWorkflow(workflowID, userID string) ([]*
 	tasks := make([]*models.Task, 0)
 	for rows.Next() {
 		task := &models.Task{}
+		var assignedWorker sql.NullString
 		err := rows.Scan(
-			&task.ID, &task.WorkflowID, &task.TaskType, &task.Name, &task.Payload, &task.State, &task.AssignedWorkerID,
+			&task.ID, &task.WorkflowID, &task.TaskType, &task.Name, &task.Payload, &task.State, &assignedWorker,
 			&task.RetryCount, &task.MaxRetries, &task.DependsOn, &task.AvailableAt, &task.StartedAt, &task.CompletedAt,
 			&task.FailedAt, &task.ErrorMessage, &task.CreatedAt, &task.UpdatedAt,
 		)
 		if err != nil {
 			return nil, err
+		}
+		if assignedWorker.Valid {
+			task.AssignedWorkerID = assignedWorker.String
 		}
 		tasks = append(tasks, task)
 	}
@@ -164,12 +170,16 @@ func (r *WorkflowRepository) ListTransitionsByWorkflow(workflowID, userID string
 	transitions := make([]*models.WorkflowTransition, 0)
 	for rows.Next() {
 		transition := &models.WorkflowTransition{}
+		var taskID sql.NullString
 		err := rows.Scan(
-			&transition.ID, &transition.WorkflowID, &transition.TaskID, &transition.EntityType, &transition.FromState,
+			&transition.ID, &transition.WorkflowID, &taskID, &transition.EntityType, &transition.FromState,
 			&transition.ToState, &transition.Reason, &transition.CreatedAt,
 		)
 		if err != nil {
 			return nil, err
+		}
+		if taskID.Valid {
+			transition.TaskID = taskID.String
 		}
 		transitions = append(transitions, transition)
 	}
@@ -183,8 +193,10 @@ func (r *WorkflowRepository) AddTransition(transition *models.WorkflowTransition
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
 	`
 
+	taskID := sql.NullString{String: transition.TaskID, Valid: transition.TaskID != ""}
+
 	_, err := r.db.Exec(query,
-		transition.ID, transition.WorkflowID, transition.TaskID, transition.EntityType, transition.FromState,
+		transition.ID, transition.WorkflowID, taskID, transition.EntityType, transition.FromState,
 		transition.ToState, transition.Reason, transition.CreatedAt,
 	)
 	return err
@@ -216,7 +228,9 @@ func (r *WorkflowRepository) UpdateTaskState(taskID, state, workerID, errorMessa
 		    updated_at = $9
 		WHERE id = $10
 	`
-	_, err := r.db.Exec(query, state, workerID, errorMessage, retryCount, startedAt, completedAt, failedAt, availableAt, time.Now(), taskID)
+	workerIDNull := sql.NullString{String: workerID, Valid: workerID != ""}
+
+	_, err := r.db.Exec(query, state, workerIDNull, errorMessage, retryCount, startedAt, completedAt, failedAt, availableAt, time.Now(), taskID)
 	return err
 }
 
@@ -276,13 +290,17 @@ func (r *WorkflowRepository) ListTasksByWorkflowAll(workflowID string) ([]*model
 	tasks := make([]*models.Task, 0)
 	for rows.Next() {
 		task := &models.Task{}
+		var assignedWorker sql.NullString
 		err := rows.Scan(
-			&task.ID, &task.WorkflowID, &task.TaskType, &task.Name, &task.Payload, &task.State, &task.AssignedWorkerID,
+			&task.ID, &task.WorkflowID, &task.TaskType, &task.Name, &task.Payload, &task.State, &assignedWorker,
 			&task.RetryCount, &task.MaxRetries, &task.DependsOn, &task.AvailableAt, &task.StartedAt, &task.CompletedAt,
 			&task.FailedAt, &task.ErrorMessage, &task.CreatedAt, &task.UpdatedAt,
 		)
 		if err != nil {
 			return nil, err
+		}
+		if assignedWorker.Valid {
+			task.AssignedWorkerID = assignedWorker.String
 		}
 		tasks = append(tasks, task)
 	}

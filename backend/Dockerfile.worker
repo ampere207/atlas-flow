@@ -2,18 +2,23 @@
 FROM golang:1.25-alpine AS builder
 
 WORKDIR /build
+
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+
 COPY . .
 
 # Build worker agent
-RUN CGO_ENABLED=0 GOOS=linux go build -o atlasflow-worker ./cmd/worker-agent/main.go
+RUN --mount=type=cache,target=/go/pkg/mod \
+    CGO_ENABLED=0 GOOS=linux go build -o ./bin/atlasflow-worker ./cmd/worker-agent/main.go
 
 # Final stage
-FROM alpine:latest
+FROM alpine:3.20
 
 RUN apk --no-cache add ca-certificates
 
 WORKDIR /app
-COPY --from=builder /build/atlasflow-worker .
+COPY --from=builder /build/bin/atlasflow-worker ./
 
 # Run worker agent
 ENTRYPOINT ["./atlasflow-worker"]

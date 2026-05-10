@@ -3,6 +3,9 @@ REM Atlas Flow - Complete Startup & Demo Script (Windows)
 
 setlocal enabledelayedexpansion
 
+if not defined DB_USER set DB_USER=atlasflow
+if not defined DB_NAME set DB_NAME=atlasflow
+
 echo.
 echo ╔════════════════════════════════════════════════════════════════╗
 echo ║        Atlas Flow - Distributed Workflow Orchestration        ║
@@ -27,19 +30,31 @@ timeout /t 2 /nobreak >nul
 echo ✓ Cleanup complete
 echo.
 
-REM Start all services
-echo [3/6] Starting infrastructure and orchestrator...
+REM Build images once here instead of rebuilding during demo runs.
+echo [3/6] Building service images...
+docker-compose build auth-service workflow-service frontend worker-1 worker-2 worker-3
+echo ✓ Service images built
+echo.
+
+REM Start infrastructure and apply schema once here.
+echo [4/6] Starting infrastructure and applying migrations...
 docker-compose up -d postgres redis nats
 echo    Waiting for services to be healthy...
 timeout /t 5 /nobreak >nul
-docker-compose up -d workflow-service
-echo    Waiting for orchestrator to be ready...
-timeout /t 3 /nobreak >nul
-echo ✓ Infrastructure started (PostgreSQL, Redis, NATS, Orchestrator)
+docker-compose exec -T postgres psql -U %DB_USER% -d %DB_NAME% -f /docker-entrypoint-initdb.d/001_init_schema.sql
+docker-compose exec -T postgres psql -U %DB_USER% -d %DB_NAME% -f /docker-entrypoint-initdb.d/002_phase2_runtime.sql
+echo ✓ Database migrations applied
+echo.
+
+echo [5/6] Starting application services...
+docker-compose up -d auth-service workflow-service frontend
+echo    Waiting for auth service, orchestrator and frontend to be ready...
+timeout /t 5 /nobreak >nul
+echo ✓ Infrastructure started (PostgreSQL, Redis, NATS, Auth, Orchestrator, Frontend)
 echo.
 
 REM Start demo workers
-echo [4/6] Starting demo workers...
+echo [6/6] Starting demo workers...
 docker-compose up -d worker-1 worker-2 worker-3
 echo    Waiting for workers to register...
 timeout /t 5 /nobreak >nul
@@ -50,7 +65,7 @@ echo   • Worker 3: All task types (capacity: 10)
 echo.
 
 REM Check running containers
-echo [5/6] Verifying all services are running...
+echo [6/6] Verifying all services are running...
 echo ✓ Services running:
 docker-compose ps
 echo.
@@ -60,6 +75,9 @@ echo [6/6] System Ready!
 echo.
 echo ═══════════════════════════════════════════════════════════════
 echo Atlas Flow is now running!
+echo.
+echo 🌐 Web Interfaces:
+echo    • Frontend Dashboard: http://localhost:3000
 echo.
 echo 📍 API Endpoints:
 echo    • Orchestrator API: http://localhost:8002

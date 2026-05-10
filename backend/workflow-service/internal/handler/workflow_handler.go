@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -9,17 +10,22 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"atlasflow/backend/shared/middleware"
+	"atlasflow/backend/shared/runtime"
 	"atlasflow/backend/workflow-service/internal/service"
 )
 
 // WorkflowHandler handles workflow routes
 type WorkflowHandler struct {
-	service *service.WorkflowService
+	service       *service.WorkflowService
+	workerConnMgr *runtime.WorkerConnectionManager
 }
 
 // NewWorkflowHandler creates a new workflow handler
-func NewWorkflowHandler(service *service.WorkflowService) *WorkflowHandler {
-	return &WorkflowHandler{service: service}
+func NewWorkflowHandler(service *service.WorkflowService, workerConnMgr *runtime.WorkerConnectionManager) *WorkflowHandler {
+	return &WorkflowHandler{
+		service:       service,
+		workerConnMgr: workerConnMgr,
+	}
 }
 
 // CreateWorkflow creates a new workflow
@@ -32,12 +38,16 @@ func (wh *WorkflowHandler) CreateWorkflow(c *gin.Context) {
 
 	var req service.CreateWorkflowRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		log.Printf("workflow create bind failed: user=%s err=%v", userID, err)
 		middleware.RespondError(c.Writer, http.StatusBadRequest, "invalid request")
 		return
 	}
 
+	log.Printf("workflow create request received: user=%s name=%q tasks=%d metadata_keys=%d", userID, req.Name, len(req.Definition.Tasks), len(req.Metadata))
+
 	workflow, err := wh.service.CreateWorkflow(userID, req)
 	if err != nil {
+		log.Printf("workflow create failed: user=%s name=%q tasks=%d err=%v", userID, req.Name, len(req.Definition.Tasks), err)
 		middleware.RespondError(c.Writer, http.StatusInternalServerError, "failed to create workflow")
 		return
 	}
@@ -261,4 +271,34 @@ func (wh *WorkflowHandler) StreamWorkflowExecution(c *gin.Context) {
 			flusher.Flush()
 		}
 	}
+}
+
+// GetWorkers retrieves all workers for the authenticated user
+func (wh *WorkflowHandler) GetWorkers(c *gin.Context) {
+	userID := middleware.ExtractUserID(c.Request)
+	if userID == "" {
+		middleware.RespondError(c.Writer, http.StatusUnauthorized, "user not authenticated")
+		return
+	}
+
+	// Get workers owned by this user
+	workers := wh.workerConnMgr.GetWorkersByUser(userID)
+
+	// Format response
+	response := make([]map[string]interface{}, len(workers))
+	for i, w := range workers {
+		response[i] = map[string]interface{}{
+			"worker_id":       w.WorkerID,
+			"user_id":         w.UserID,
+			"status":          w.Status,
+			"capabilities":    w.Capabilities,
+			"capacity":        w.Capacity,
+			"running_tasks":   w.RunningTasks,
+			"completed_tasks": w.CompletedTasks,
+			"failed_tasks":    w.FailedTasks,
+			"last_heartbeat":  w.LastHeartbeat,
+		}
+	}
+
+	middleware.RespondJSON(c.Writer, http.StatusOK, response)
 }

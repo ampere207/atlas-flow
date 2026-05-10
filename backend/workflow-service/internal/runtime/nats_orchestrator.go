@@ -203,11 +203,11 @@ func (no *NATSOrchestrator) getReadyTasks(tasks []*models.Task) []*models.Task {
 
 // sendTaskToWorker sends a task to an available worker via NATS
 func (no *NATSOrchestrator) sendTaskToWorker(task *models.Task, userID string) {
-	// Find an available worker that can handle this task
-	worker := no.workerConnMgr.FindWorkerForTask(task.TaskType)
+	// Find an available worker that can handle this task (scoped to user for multi-tenant isolation)
+	worker := no.workerConnMgr.FindWorkerForTaskByUser(task.TaskType, userID)
 
 	if worker == nil {
-		log.Printf("! No available workers for task %s (%s)", task.ID, task.TaskType)
+		log.Printf("! No available workers for task %s (%s) for user %s", task.ID, task.TaskType, userID)
 		return
 	}
 

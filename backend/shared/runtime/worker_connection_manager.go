@@ -13,6 +13,7 @@ import (
 // WorkerConnection represents a connected worker's metadata
 type WorkerConnection struct {
 	WorkerID       string
+	UserID         string // User who owns this worker
 	Capabilities   []string
 	Capacity       int32
 	RunningTasks   int32
@@ -25,6 +26,7 @@ type WorkerConnection struct {
 // HeartbeatData represents a worker heartbeat message
 type HeartbeatData struct {
 	WorkerID       string   `json:"worker_id"`
+	UserID         string   `json:"user_id"` // User who owns this worker
 	Status         string   `json:"status"`
 	Capabilities   []string `json:"capabilities"`
 	Capacity       int32    `json:"capacity"`
@@ -97,13 +99,15 @@ func (wcm *WorkerConnectionManager) updateWorkerConnection(hb *HeartbeatData) {
 		// New worker connected
 		conn = &WorkerConnection{
 			WorkerID: hb.WorkerID,
+			UserID:   hb.UserID, // Capture user ownership from heartbeat
 		}
 		wcm.connections[hb.WorkerID] = conn
-		log.Printf("✓ New worker connected: %s (%v)", hb.WorkerID, hb.Capabilities)
+		log.Printf("✓ New worker connected: %s (user: %s, capabilities: %v)", hb.WorkerID, hb.UserID, hb.Capabilities)
 	}
 
 	// Update connection info
 	conn.Status = "connected"
+	conn.UserID = hb.UserID // Keep user ID in sync
 	conn.Capabilities = hb.Capabilities
 	conn.Capacity = hb.Capacity
 	conn.RunningTasks = hb.RunningTasks
@@ -145,12 +149,21 @@ func (wcm *WorkerConnectionManager) detectDeadWorkers() {
 
 // GetAvailableWorkers returns all healthy connected workers
 func (wcm *WorkerConnectionManager) GetAvailableWorkers() []*WorkerConnection {
+	return wcm.GetAvailableWorkersByUser("")
+}
+
+// GetAvailableWorkersByUser returns workers owned by a specific user
+func (wcm *WorkerConnectionManager) GetAvailableWorkersByUser(userID string) []*WorkerConnection {
 	wcm.mu.RLock()
 	defer wcm.mu.RUnlock()
 
 	available := make([]*WorkerConnection, 0)
 	for _, conn := range wcm.connections {
 		if conn.Status == "connected" {
+			// Filter by user if specified
+			if userID != "" && conn.UserID != userID {
+				continue
+			}
 			available = append(available, conn)
 		}
 	}
@@ -158,8 +171,28 @@ func (wcm *WorkerConnectionManager) GetAvailableWorkers() []*WorkerConnection {
 	return available
 }
 
+// GetWorkersByUser returns all workers owned by a user (including dead workers)
+func (wcm *WorkerConnectionManager) GetWorkersByUser(userID string) []*WorkerConnection {
+	wcm.mu.RLock()
+	defer wcm.mu.RUnlock()
+
+	workers := make([]*WorkerConnection, 0)
+	for _, conn := range wcm.connections {
+		if conn.UserID == userID {
+			workers = append(workers, conn)
+		}
+	}
+
+	return workers
+}
+
 // FindWorkerForTask finds an available worker that can handle the task type
 func (wcm *WorkerConnectionManager) FindWorkerForTask(taskType string) *WorkerConnection {
+	return wcm.FindWorkerForTaskByUser(taskType, "")
+}
+
+// FindWorkerForTaskByUser finds a worker for a specific task type owned by a user
+func (wcm *WorkerConnectionManager) FindWorkerForTaskByUser(taskType, userID string) *WorkerConnection {
 	wcm.mu.RLock()
 	defer wcm.mu.RUnlock()
 
@@ -168,6 +201,11 @@ func (wcm *WorkerConnectionManager) FindWorkerForTask(taskType string) *WorkerCo
 
 	for _, conn := range wcm.connections {
 		if conn.Status != "connected" {
+			continue
+		}
+
+		// Filter by user if specified (for multi-tenant isolation)
+		if userID != "" && conn.UserID != userID {
 			continue
 		}
 

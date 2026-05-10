@@ -19,6 +19,7 @@ import (
 // WorkerAgent represents a connected worker
 type WorkerAgent struct {
 	id            string
+	userID        string // User who owns this worker
 	natsConn      *nats.Conn
 	capabilities  []string
 	capacity      int32
@@ -52,6 +53,7 @@ type TaskResult struct {
 // HeartbeatMessage is sent periodically
 type HeartbeatMessage struct {
 	WorkerID       string   `json:"worker_id"`
+	UserID         string   `json:"user_id"` // User who owns this worker
 	Status         string   `json:"status"`
 	Capabilities   []string `json:"capabilities"`
 	Capacity       int32    `json:"capacity"`
@@ -69,6 +71,7 @@ var (
 func main() {
 	natsURL := flag.String("nats", "nats://localhost:4222", "NATS server URL")
 	workerID := flag.String("id", "worker-1", "Worker ID")
+	userID := flag.String("user-id", "demo-user", "User ID (owner of this worker)")
 	capabilities := flag.String("capabilities", "http_request,script,db_query", "Comma-separated task types")
 	capacity := flag.Int("capacity", 5, "Max concurrent tasks")
 	flag.Parse()
@@ -94,6 +97,7 @@ func main() {
 	// Create worker agent
 	agent := &WorkerAgent{
 		id:           *workerID,
+		userID:       *userID,
 		natsConn:     nc,
 		capabilities: caps,
 		capacity:     int32(*capacity),
@@ -231,8 +235,7 @@ func (wa *WorkerAgent) heartbeatLoop() {
 		case <-ticker.C:
 			hb := HeartbeatMessage{
 				WorkerID:       wa.id,
-				Status:         "connected",
-				Capabilities:   wa.capabilities,
+				UserID:         wa.userID,
 				Capacity:       wa.capacity,
 				RunningTasks:   atomic.LoadInt32(&wa.runningTasks),
 				CompletedTasks: atomic.LoadInt64(&completedCount),

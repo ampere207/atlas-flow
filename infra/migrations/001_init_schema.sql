@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_users_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 
 -- Refresh tokens table
 CREATE TABLE IF NOT EXISTS refresh_tokens (
@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_refresh_tokens_user_id ON refresh_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user_id ON refresh_tokens(user_id);
 
 -- Workflows table
 CREATE TABLE IF NOT EXISTS workflows (
@@ -32,9 +32,9 @@ CREATE TABLE IF NOT EXISTS workflows (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_workflows_user_id ON workflows(user_id);
-CREATE INDEX idx_workflows_status ON workflows(status);
-CREATE INDEX idx_workflows_created_at ON workflows(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_workflows_user_id ON workflows(user_id);
+CREATE INDEX IF NOT EXISTS idx_workflows_status ON workflows(status);
+CREATE INDEX IF NOT EXISTS idx_workflows_created_at ON workflows(created_at DESC);
 
 -- Workflow events table
 CREATE TABLE IF NOT EXISTS workflow_events (
@@ -45,8 +45,8 @@ CREATE TABLE IF NOT EXISTS workflow_events (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_workflow_events_workflow_id ON workflow_events(workflow_id);
-CREATE INDEX idx_workflow_events_created_at ON workflow_events(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_workflow_events_workflow_id ON workflow_events(workflow_id);
+CREATE INDEX IF NOT EXISTS idx_workflow_events_created_at ON workflow_events(created_at DESC);
 
 -- Workers table
 CREATE TABLE IF NOT EXISTS workers (
@@ -59,6 +59,6 @@ CREATE TABLE IF NOT EXISTS workers (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_workers_user_id ON workers(user_id);
-CREATE INDEX idx_workers_status ON workers(status);
-CREATE INDEX idx_workers_last_heartbeat ON workers(last_heartbeat DESC);
+CREATE INDEX IF NOT EXISTS idx_workers_user_id ON workers(user_id);
+CREATE INDEX IF NOT EXISTS idx_workers_status ON workers(status);
+CREATE INDEX IF NOT EXISTS idx_workers_last_heartbeat ON workers(last_heartbeat DESC);

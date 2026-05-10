@@ -3,12 +3,16 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"log"
 	"time"
 
 	"atlasflow/backend/shared/models"
 	sharedruntime "atlasflow/backend/shared/runtime"
 	"atlasflow/backend/workflow-service/internal/repository"
 	workflowruntime "atlasflow/backend/workflow-service/internal/runtime"
+
+	"github.com/google/uuid"
 )
 
 // WorkflowService handles workflow business logic
@@ -31,10 +35,12 @@ type CreateWorkflowRequest struct {
 
 // CreateWorkflow creates a new workflow
 func (ws *WorkflowService) CreateWorkflow(userID string, req CreateWorkflowRequest) (*models.Workflow, error) {
+	log.Printf("workflow service create start: user=%s name=%q tasks=%d", userID, req.Name, len(req.Definition.Tasks))
+
 	if len(req.Definition.Tasks) == 0 {
 		workflow, err := ws.repo.Create(userID, req.Name, req.Metadata)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("create workflow row: %w", err)
 		}
 		_ = ws.repo.CreateEvent(workflow.ID, "workflow_created", map[string]interface{}{
 			"workflow_id":   workflow.ID,
@@ -43,16 +49,41 @@ func (ws *WorkflowService) CreateWorkflow(userID string, req CreateWorkflowReque
 		return workflow, nil
 	}
 
+	// Map client provided IDs to real database UUIDs
+	idMap := make(map[string]string)
+	for i := range req.Definition.Tasks {
+		newID := uuid.New().String()
+		oldID := req.Definition.Tasks[i].ID
+		if oldID != "" {
+			idMap[oldID] = newID
+		}
+		req.Definition.Tasks[i].ID = newID
+	}
+
+	for i := range req.Definition.Tasks {
+		newDependsOn := make([]string, 0)
+		for _, dep := range req.Definition.Tasks[i].DependsOn {
+			if mapped, ok := idMap[dep]; ok {
+				newDependsOn = append(newDependsOn, mapped)
+			} else {
+				newDependsOn = append(newDependsOn, dep) // fallback
+			}
+		}
+		req.Definition.Tasks[i].DependsOn = newDependsOn
+	}
+
 	if err := req.Definition.Validate(); err != nil {
-		return nil, err
+		log.Printf("workflow definition validation failed: user=%s name=%q tasks=%d err=%v", userID, req.Name, len(req.Definition.Tasks), err)
+		return nil, fmt.Errorf("validate workflow definition: %w", err)
 	}
 
 	workflow, err := ws.repo.CreateExecutionWorkflow(userID, req.Name, req.Metadata, req.Definition)
 	if err != nil {
-		return nil, err
+		log.Printf("workflow execution row create failed: user=%s name=%q err=%v", userID, req.Name, err)
+		return nil, fmt.Errorf("create execution workflow row: %w", err)
 	}
 
-	for _, taskDefinition := range req.Definition.Tasks {
+	for idx, taskDefinition := range req.Definition.Tasks {
 		payloadJSON, _ := json.Marshal(taskDefinition.Payload)
 		dependsOnJSON, _ := json.Marshal(taskDefinition.DependsOn)
 		maxRetries := taskDefinition.RetryPolicy.MaxAttempts
@@ -62,11 +93,18 @@ func (ws *WorkflowService) CreateWorkflow(userID string, req CreateWorkflowReque
 		if taskDefinition.TimeoutSeconds == 0 {
 			taskDefinition.TimeoutSeconds = 300
 		}
+		taskName := taskDefinition.Name
+		if taskName == "" {
+			taskName = taskDefinition.Type
+		}
+		if taskName == "" {
+			taskName = taskDefinition.ID
+		}
 		task := &models.Task{
 			ID:          taskDefinition.ID,
 			WorkflowID:  workflow.ID,
 			TaskType:    taskDefinition.Type,
-			Name:        taskDefinition.Name,
+			Name:        taskName,
 			Payload:     string(payloadJSON),
 			State:       string(sharedruntime.TaskStatePending),
 			DependsOn:   string(dependsOnJSON),
@@ -77,10 +115,11 @@ func (ws *WorkflowService) CreateWorkflow(userID string, req CreateWorkflowReque
 			UpdatedAt:   time.Now().UTC(),
 		}
 		if err := ws.repo.AddTask(task); err != nil {
-			return nil, err
+			log.Printf("workflow task insert failed: user=%s workflow_id=%s task_index=%d task_id=%s task_type=%s task_name=%q depends_on=%v err=%v", userID, workflow.ID, idx, task.ID, task.TaskType, task.Name, taskDefinition.DependsOn, err)
+			return nil, fmt.Errorf("add task %s (%s): %w", task.ID, task.TaskType, err)
 		}
-		_ = ws.repo.AddTransition(&models.WorkflowTransition{
-			ID:         workflow.ID + "-task-" + task.ID,
+		if err := ws.repo.AddTransition(&models.WorkflowTransition{
+			ID:         uuid.New().String(),
 			WorkflowID: workflow.ID,
 			TaskID:     task.ID,
 			EntityType: "task",
@@ -88,7 +127,10 @@ func (ws *WorkflowService) CreateWorkflow(userID string, req CreateWorkflowReque
 			ToState:    string(sharedruntime.TaskStatePending),
 			Reason:     "task registered",
 			CreatedAt:  time.Now().UTC(),
-		})
+		}); err != nil {
+			log.Printf("workflow task transition insert failed: user=%s workflow_id=%s task_id=%s err=%v", userID, workflow.ID, task.ID, err)
+			return nil, fmt.Errorf("add task transition %s: %w", task.ID, err)
+		}
 	}
 
 	_ = ws.repo.CreateEvent(workflow.ID, "workflow_created", map[string]interface{}{

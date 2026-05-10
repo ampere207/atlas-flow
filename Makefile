@@ -51,6 +51,7 @@ docker-clean:
 db-migrate:
 	@echo "Running database migrations..."
 	PGPASSWORD=atlasflow_dev psql -h localhost -U atlasflow -d atlasflow -f infra/migrations/001_init_schema.sql
+	PGPASSWORD=atlasflow_dev psql -h localhost -U atlasflow -d atlasflow -f infra/migrations/002_phase2_runtime.sql
 	@echo "Migrations completed!"
 
 # Development commands

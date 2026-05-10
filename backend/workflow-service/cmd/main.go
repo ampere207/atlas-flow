@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log"
 	"net/http"
@@ -43,6 +44,10 @@ func main() {
 	}
 	defer database.Close()
 
+	if err := ensureWorkflowSchema(database); err != nil {
+		log.Fatalf("Failed to ensure workflow schema: %v", err)
+	}
+
 	// Initialize JWT manager
 	jwtManager := auth.NewJWTManager(jwtSecret, 15*time.Minute)
 
@@ -80,7 +85,7 @@ func main() {
 	workflowService := service.NewWorkflowService(workflowRepo, orchestrator)
 
 	// Initialize handlers
-	workflowHandler := handler.NewWorkflowHandler(workflowService)
+	workflowHandler := handler.NewWorkflowHandler(workflowService, workerConnMgr)
 
 	// Setup router
 	router := gin.Default()
@@ -106,6 +111,7 @@ func main() {
 		protected.GET("/workflows/:id/history", workflowHandler.ListWorkflowHistory)
 		protected.GET("/workflows/:id/status", workflowHandler.GetWorkflowExecutionStatus)
 		protected.PUT("/workflows/:id/status", workflowHandler.UpdateWorkflowStatus)
+		protected.GET("/workers", workflowHandler.GetWorkers)
 	}
 
 	// Start server
@@ -120,4 +126,12 @@ func getEnv(key, defaultValue string) string {
 		return value
 	}
 	return defaultValue
+}
+
+func ensureWorkflowSchema(database *sql.DB) error {
+	_, err := database.Exec(`
+		ALTER TABLE workflows
+		ADD COLUMN IF NOT EXISTS definition TEXT NOT NULL DEFAULT ''
+	`)
+	return err
 }
