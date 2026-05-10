@@ -75,11 +75,11 @@ services:
     networks:
       - atlasflow
 
-  # Workflow Service
+  # Workflow Service (API)
   workflow-service:
     build:
-      context: .
-      dockerfile: backend/workflow-service/Dockerfile
+      context: backend
+      dockerfile: Dockerfile.orchestrator
     container_name: atlasflow-workflow
     environment:
       DB_HOST: postgres
@@ -100,6 +100,12 @@ services:
       - nats
     networks:
       - atlasflow
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # Worker Service
   worker-service:
@@ -168,6 +174,81 @@ services:
       - event-service
     networks:
       - atlasflow
+
+  # Demo Worker 1 - HTTP & Script Tasks
+  worker-1:
+    build:
+      context: backend
+      dockerfile: Dockerfile.worker
+    container_name: atlasflow-worker-1
+    environment:
+      NATS_URL: nats://nats:4222
+    command: 
+      - --nats=nats://nats:4222
+      - --id=worker-1
+      - --capabilities=http_request,script,echo
+      - --capacity=5
+    depends_on:
+      - nats
+      - workflow-service
+    networks:
+      - atlasflow
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Demo Worker 2 - Database & Echo Tasks
+  worker-2:
+    build:
+      context: backend
+      dockerfile: Dockerfile.worker
+    container_name: atlasflow-worker-2
+    environment:
+      NATS_URL: nats://nats:4222
+    command:
+      - --nats=nats://nats:4222
+      - --id=worker-2
+      - --capabilities=db_query,echo
+      - --capacity=8
+    depends_on:
+      - nats
+      - workflow-service
+    networks:
+      - atlasflow
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Demo Worker 3 - All Tasks (High Capacity)
+  worker-3:
+    build:
+      context: backend
+      dockerfile: Dockerfile.worker
+    container_name: atlasflow-worker-3
+    environment:
+      NATS_URL: nats://nats:4222
+    command:
+      - --nats=nats://nats:4222
+      - --id=worker-3
+      - --capabilities=http_request,script,db_query,echo
+      - --capacity=10
+    depends_on:
+      - nats
+      - workflow-service
+    networks:
+      - atlasflow
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # Frontend (Next.js)
   frontend:

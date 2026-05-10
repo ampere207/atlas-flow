@@ -1,8 +1,527 @@
-# AtlasFlow
+# Atlas Flow - Distributed Workflow Orchestration System
 
-> **Distributed Workflow Orchestration for Modern Infrastructure**
+> **Production-grade distributed workflow orchestration engine with real NATS-based worker coordination and automatic load balancing.**
 
-AtlasFlow is a production-grade distributed workflow execution engine designed to solve the complexity of coordinating long-running, fault-tolerant business processes across distributed systems.
+## 🚀 Quick Start (One Command)
+
+### macOS/Linux:
+```bash
+bash scripts/startup.sh
+```
+
+### Windows (PowerShell):
+```powershell
+bash scripts/startup.bat
+```
+
+This single command:
+- ✅ Starts PostgreSQL, Redis, NATS
+- ✅ Starts orchestrator service
+- ✅ Starts 3 demo workers with different capabilities
+- ✅ Outputs all connection details
+
+**All services run in Docker containers — no local installations required.**
+
+---
+
+## 📋 What Gets Started
+
+When you run the startup script, you get:
+
+| Service | Port | Purpose |
+|---------|------|---------|
+| **PostgreSQL** | 5432 | Workflow & task persistence |
+| **Redis** | 6379 | Caching & session management |
+| **NATS** | 4222 | Real-time pub/sub message bus |
+| **Orchestrator** | 8002 | Task distribution & coordination |
+| **Worker 1** | - | HTTP & Script task handler (capacity: 5) |
+| **Worker 2** | - | Database & Echo task handler (capacity: 8) |
+| **Worker 3** | - | All task types (capacity: 10) |
+
+---
+
+## 🎯 How It Works
+
+### The Real Worker System
+
+Workers are **real processes** that maintain persistent connections to the orchestrator via NATS:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     Workflow Created                        │
+│                   POST /workflows/create                    │
+└────────────────────────────────┬──────────────────────────┘
+                                 │
+                                 ▼
+┌─────────────────────────────────────────────────────────────┐
+│              Orchestrator Detects Running Workflow          │
+│          (Polls database every 1 second for running tasks)  │
+└────────────────────────────────┬──────────────────────────┘
+                                 │
+                                 ▼
+┌─────────────────────────────────────────────────────────────┐
+│          Identifies Tasks with Satisfied Dependencies       │
+│                (Ready to execute right now)                 │
+└────────────────────────────────┬──────────────────────────┘
+                                 │
+                                 ▼
+┌─────────────────────────────────────────────────────────────┐
+│      Selects Best Worker (least loaded with capability)     │
+│           (Queries WorkerConnectionManager)                 │
+└────────────────────────────────┬──────────────────────────┘
+                                 │
+                                 ▼
+┌─────────────────────────────────────────────────────────────┐
+│          Sends Task via NATS to Worker                      │
+│      (Publishes to workers.{worker-id}.tasks channel)      │
+└────────────────────────────────┬──────────────────────────┘
+                                 │
+                                 ▼
+┌─────────────────────────────────────────────────────────────┐
+│        Worker Receives Task (listening on NATS)             │
+│           Executes based on task type (HTTP, Script, DB)    │
+└────────────────────────────────┬──────────────────────────┘
+                                 │
+                                 ▼
+┌─────────────────────────────────────────────────────────────┐
+│    Worker Sends Result back via NATS                        │
+│  (Publishes to tasks.{task-id}.result channel)            │
+└────────────────────────────────┬──────────────────────────┘
+                                 │
+                                 ▼
+┌─────────────────────────────────────────────────────────────┐
+│  Orchestrator Receives Result & Updates Workflow            │
+│   (Database updated, next ready tasks identified)           │
+└────────────────────────────────┬──────────────────────────┘
+                                 │
+                                 ▼
+┌─────────────────────────────────────────────────────────────┐
+│   Workflow Continues Until Completion                       │
+│        (All tasks executed, status = completed)             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Worker Heartbeat System
+
+Workers send heartbeats every 10 seconds:
+
+```json
+{
+  "worker_id": "worker-1",
+  "status": "connected",
+  "capabilities": ["http_request", "script", "echo"],
+  "capacity": 5,
+  "running_tasks": 2,
+  "completed_tasks": 45,
+  "failed_tasks": 2
+}
+```
+
+The orchestrator:
+- ✅ Detects worker liveness in real-time
+- ✅ Tracks worker capacity and load
+- ✅ Knows exactly which tasks each worker can execute
+- ✅ Auto-reassigns tasks from dead workers after 30 seconds
+
+---
+
+## 🔨 Create Your First Workflow
+
+### Via cURL (API):
+
+```bash
+# 1. Create workflow
+curl -X POST http://localhost:8002/workflows \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "My First Workflow",
+    "definition": {
+      "tasks": [
+        {
+          "id": "greeting",
+          "type": "echo",
+          "payload": {"message": "Hello from Atlas Flow!"}
+        },
+        {
+          "id": "fetch",
+          "type": "http_request",
+          "payload": {
+            "url": "https://jsonplaceholder.typicode.com/posts/1",
+            "method": "GET"
+          },
+          "depends_on": ["greeting"]
+        }
+      ]
+    }
+  }'
+```
+
+Response:
+```json
+{
+  "id": "wf-abc123",
+  "name": "My First Workflow",
+  "status": "created"
+}
+```
+
+### 2. Execute the workflow:
+
+```bash
+curl -X POST http://localhost:8002/workflows/wf-abc123/execute
+```
+
+### 3. Monitor execution:
+
+```bash
+# Watch orchestrator logs
+docker-compose logs -f workflow-service
+
+# Watch worker execution
+docker-compose logs -f worker-1 worker-2 worker-3
+
+# Or poll API
+curl http://localhost:8002/workflows/wf-abc123
+```
+
+---
+
+## 📊 Demo Workflows
+
+Run comprehensive demos showing the system in action:
+
+```bash
+bash scripts/demo-workflows.sh
+```
+
+This runs:
+1. **Echo Pipeline** - Simple sequential task execution
+2. **Multi-Task Workflow** - Mixed HTTP, Script, Database tasks
+3. **Parallel Execution** - Multiple tasks running simultaneously
+4. **Load Balancing** - 3 concurrent workflows distributed across workers
+
+---
+
+## 🏗️ Architecture Overview
+
+### Microservice-Based Design
+
+Each component is isolated and independently deployable:
+
+```
+┌─────────────────────────────────────────────┐
+│          Frontend (Next.js)                 │
+│      (Workflow UI, Monitoring Dashboard)    │
+└─────────────────────────────────────────────┘
+                        │
+                        ▼
+┌─────────────────────────────────────────────┐
+│      Orchestrator Service (API on :8002)    │
+│   - Creates workflows                        │
+│   - Parses DAG                               │
+│   - Sends tasks to workers via NATS         │
+│   - Handles retries & failures              │
+└─────────────────────────────────────────────┘
+                        │
+                        ▼
+┌─────────────────────────────────────────────┐
+│      NATS Message Bus (:4222)               │
+│   - workers.{id}.tasks (task assignment)    │
+│   - workers.{id}.heartbeat (worker liveness)│
+│   - tasks.{id}.result (task completion)     │
+└─────────────────────────────────────────────┘
+                        │
+     ┌──────────────────┼──────────────────┐
+     ▼                  ▼                  ▼
+┌─────────────┐  ┌─────────────┐  ┌─────────────┐
+│  Worker 1   │  │  Worker 2   │  │  Worker 3   │
+│ HTTP,Script │  │ Database    │  │    All      │
+│ Capacity: 5 │  │ Capacity: 8 │  │ Capacity:10 │
+└─────────────┘  └─────────────┘  └─────────────┘
+```
+
+### Technology Stack
+
+- **Language**: Go 1.25
+- **API Framework**: Gin (HTTP REST)
+- **Message Bus**: NATS 2.10 (pub/sub)
+- **Database**: PostgreSQL 16
+- **Cache**: Redis 7
+- **Container**: Docker + Docker Compose
+- **Frontend**: Next.js 15, React 18, TailwindCSS
+
+---
+
+## 🔄 Task Types
+
+### 1. Echo (Testing)
+```json
+{
+  "type": "echo",
+  "payload": {
+    "message": "Hello World"
+  }
+}
+```
+
+### 2. HTTP Request
+```json
+{
+  "type": "http_request",
+  "payload": {
+    "url": "https://api.example.com/data",
+    "method": "GET",
+    "headers": {"Authorization": "Bearer token"}
+  }
+}
+```
+
+### 3. Script Execution
+```json
+{
+  "type": "script",
+  "payload": {
+    "script": "python transform.py",
+    "timeout": 300
+  }
+}
+```
+
+### 4. Database Query
+```json
+{
+  "type": "db_query",
+  "payload": {
+    "query": "SELECT * FROM users WHERE id = $1",
+    "params": [123]
+  }
+}
+```
+
+---
+
+## 📈 Scaling & Load Balancing
+
+### Add More Workers
+
+Edit `docker-compose.yml`:
+
+```yaml
+# Add to services section
+worker-4:
+  build:
+    context: backend
+    dockerfile: Dockerfile.worker
+  environment:
+    NATS_URL: nats://nats:4222
+  command:
+    - --nats=nats://nats:4222
+    - --id=worker-4
+    - --capabilities=http_request,script,db_query,echo
+    - --capacity=15
+  depends_on:
+    - nats
+    - workflow-service
+  networks:
+    - atlasflow
+```
+
+Then restart:
+```bash
+docker-compose up -d worker-4
+```
+
+New worker automatically registers and receives tasks!
+
+### How Load Balancing Works
+
+Orchestrator uses `WorkerConnectionManager` to find the best worker:
+
+```go
+// Selects least-loaded worker with required capability
+worker := workerMgr.FindWorkerForTask(taskType)
+// If worker-1 has 2/5 tasks and worker-2 has 1/8 tasks
+// → Chooses worker-2 (more available capacity)
+```
+
+---
+
+## 🔒 Failure Handling
+
+### Automatic Retry
+```json
+{
+  "id": "task-1",
+  "type": "http_request",
+  "payload": {...},
+  "max_retries": 3
+}
+```
+
+Retryable errors (network timeout, 503):
+- Retry with exponential backoff
+- If max_retries exceeded → Fail permanently
+
+Non-retryable errors (400, 404):
+- Fail immediately, no retry
+
+### Worker Failure Recovery
+
+**Scenario**: Worker crashes while executing task
+
+```
+1. Task assigned to worker-1 (state: assigned)
+2. Worker-1 crashes
+3. Orchestrator detects no heartbeat for 30+ seconds
+4. Marks worker as "dead"
+5. Reassigns task: state = pending
+6. Next cycle: Sends to healthy worker (worker-2, worker-3)
+7. Task continues from beginning
+```
+
+**Result**: Zero task loss, automatic recovery
+
+---
+
+## 📚 API Reference
+
+### Workflows
+
+```
+POST   /workflows                Create workflow
+GET    /workflows                List workflows
+GET    /workflows/:id            Get workflow details
+POST   /workflows/:id/execute    Execute workflow
+GET    /workflows/:id/status     Get execution status
+```
+
+### Tasks
+
+```
+GET    /workflows/:id/tasks      Get all tasks
+GET    /workflows/:id/tasks/:taskId  Get task details
+```
+
+### System
+
+```
+GET    /health                   Health check
+GET    /workers                  List connected workers
+```
+
+---
+
+## 🛠️ Development
+
+### Build Locally
+
+```bash
+cd backend
+go build ./...
+```
+
+### Run Without Docker
+
+```bash
+# Terminal 1: Start NATS
+docker run -p 4222:4222 nats:2.10-alpine
+
+# Terminal 2: Start orchestrator
+go run ./workflow-service/cmd/main.go
+
+# Terminal 3: Start worker
+go run ./cmd/worker-agent/main.go --id=worker-1
+
+# Terminal 4: Create workflows
+curl -X POST http://localhost:8002/workflows ...
+```
+
+---
+
+## 📖 Full Documentation
+
+- **[USAGE_GUIDE.md](./USAGE_GUIDE.md)** - Comprehensive usage examples and API docs
+- **[REAL_WORKER_SYSTEM.md](./REAL_WORKER_SYSTEM.md)** - Deep dive into worker architecture
+- **[PHASE_2_AUDIT.md](./PHASE_2_AUDIT.md)** - Complete feature audit
+
+---
+
+## 🎓 Learning Path
+
+1. **Start**: Run `bash scripts/startup.sh`
+2. **Observe**: Watch demo workflows with `bash scripts/demo-workflows.sh`
+3. **Understand**: Read [REAL_WORKER_SYSTEM.md](./REAL_WORKER_SYSTEM.md)
+4. **Create**: Build your own workflows using [USAGE_GUIDE.md](./USAGE_GUIDE.md)
+5. **Scale**: Add more workers and tasks
+
+---
+
+## 🐛 Troubleshooting
+
+### Workers not connecting?
+```bash
+# Check NATS is running
+docker-compose ps nats
+
+# View worker logs
+docker-compose logs worker-1 worker-2 worker-3
+
+# Restart workers
+docker-compose restart worker-1 worker-2 worker-3
+```
+
+### Tasks stuck?
+```bash
+# View orchestrator logs
+docker-compose logs -f workflow-service
+
+# Check database
+docker-compose exec postgres psql -U atlasflow -d atlasflow -c "SELECT * FROM tasks WHERE state='assigned';"
+
+# Reset (development only)
+docker-compose down -v  # Removes all data
+docker-compose up -d    # Fresh start
+```
+
+### API not responding?
+```bash
+# Check orchestrator is running
+docker-compose ps workflow-service
+
+# Test health
+curl http://localhost:8002/health
+
+# View logs
+docker-compose logs workflow-service
+```
+
+---
+
+## 🌟 Key Features
+
+✅ **Real Worker Coordination** - NATS pub/sub for true distributed execution
+✅ **Automatic Load Balancing** - Smart worker selection based on capacity
+✅ **Failure Recovery** - Automatic task reassignment on worker failure
+✅ **Retry Logic** - Exponential backoff for transient failures
+✅ **DAG Execution** - Complex workflows with dependencies
+✅ **Parallel Execution** - Multiple tasks run simultaneously
+✅ **Scalable** - Add workers on demand, no coordinator changes
+✅ **Observable** - Heartbeats, logs, real-time task tracking
+✅ **Production Ready** - Error handling, timeouts, health checks
+
+---
+
+## 📞 Support
+
+For issues, questions, or contributions:
+1. Check [USAGE_GUIDE.md](./USAGE_GUIDE.md) for common scenarios
+2. Review logs: `docker-compose logs -f`
+3. Create an issue with logs and reproduction steps
+
+---
+
+**Built with Go, NATS, and PostgreSQL — Designed for Production Microservice Architectures**
+
 
 ---
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"atlasflow/backend/shared/auth"
 	"atlasflow/backend/shared/db"
 	"atlasflow/backend/shared/middleware"
+	sharedruntime "atlasflow/backend/shared/runtime"
 	"atlasflow/backend/workflow-service/internal/handler"
 	"atlasflow/backend/workflow-service/internal/repository"
 	workflowruntime "atlasflow/backend/workflow-service/internal/runtime"
@@ -53,6 +55,25 @@ func main() {
 	// Initialize repositories
 	workflowRepo := repository.NewWorkflowRepository(database)
 	workflowPublisher := workflowruntime.NewNATSPublisher(natsConn)
+
+	// Initialize worker connection manager (tracks connected workers via NATS heartbeats)
+	workerConnMgr := sharedruntime.NewWorkerConnectionManager(natsConn)
+	defer workerConnMgr.Stop()
+
+	// Initialize event bus
+	eventBus := sharedruntime.NewInMemoryEventBus()
+
+	// Initialize NATS orchestrator (sends tasks to real workers)
+	natsOrchestrator := workflowruntime.NewNATSOrchestrator(workflowRepo, natsConn, workerConnMgr, eventBus)
+
+	// Start orchestration loop in background
+	go func() {
+		if err := natsOrchestrator.Start(context.Background()); err != nil {
+			log.Printf("Orchestrator error: %v", err)
+		}
+	}()
+
+	// Keep old orchestrator for backward compatibility
 	orchestrator := workflowruntime.NewOrchestrator(workflowRepo, workflowPublisher)
 
 	// Initialize services

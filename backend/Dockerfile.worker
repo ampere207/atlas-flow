@@ -1,0 +1,20 @@
+# Build stage
+FROM golang:1.25-alpine AS builder
+
+WORKDIR /build
+COPY . .
+
+# Build worker agent
+RUN CGO_ENABLED=0 GOOS=linux go build -o atlasflow-worker ./cmd/worker-agent/main.go
+
+# Final stage
+FROM alpine:latest
+
+RUN apk --no-cache add ca-certificates
+
+WORKDIR /app
+COPY --from=builder /build/atlasflow-worker .
+
+# Run worker agent
+ENTRYPOINT ["./atlasflow-worker"]
+CMD ["--nats=nats://nats:4222", "--id=worker-default", "--capabilities=http_request,script,db_query,echo", "--capacity=5"]
