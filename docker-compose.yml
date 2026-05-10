@@ -1,0 +1,194 @@
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: atlasflow-postgres
+    environment:
+      POSTGRES_USER: ${DB_USER:-atlasflow}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-atlasflow_dev}
+      POSTGRES_DB: ${DB_NAME:-atlasflow}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/migrations:/docker-entrypoint-initdb.d
+    networks:
+      - atlasflow
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-atlasflow}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: atlasflow-redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - atlasflow
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # NATS Event Bus
+  nats:
+    image: nats:2.10-alpine
+    container_name: atlasflow-nats
+    ports:
+      - "${NATS_PORT:-4222}:4222"
+      - "8222:8222"  # Management port
+    volumes:
+      - nats_data:/data
+    networks:
+      - atlasflow
+    # Healthcheck removed: some nats images do not include the nats CLI,
+    # which caused the healthcheck to fail and block dependent services.
+    # If you want a healthcheck, add a small sidecar or use an image with
+    # the nats CLI available and test the HTTP monitor on port 8222.
+
+  # Auth Service
+  auth-service:
+    build:
+      context: .
+      dockerfile: backend/auth-service/Dockerfile
+    container_name: atlasflow-auth
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-atlasflow}
+      DB_PASSWORD: ${DB_PASSWORD:-atlasflow_dev}
+      DB_NAME: ${DB_NAME:-atlasflow}
+      JWT_SECRET: ${JWT_SECRET:-your-secret-key-change-in-production}
+      JWT_DURATION: 15m
+      PORT: 8001
+    ports:
+      - "8001:8001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - atlasflow
+
+  # Workflow Service
+  workflow-service:
+    build:
+      context: .
+      dockerfile: backend/workflow-service/Dockerfile
+    container_name: atlasflow-workflow
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-atlasflow}
+      DB_PASSWORD: ${DB_PASSWORD:-atlasflow_dev}
+      DB_NAME: ${DB_NAME:-atlasflow}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      NATS_URL: nats://nats:4222
+      PORT: 8002
+      JWT_SECRET: ${JWT_SECRET:-your-secret-key-change-in-production}
+    ports:
+      - "8002:8002"
+    depends_on:
+      - postgres
+      - redis
+      - nats
+    networks:
+      - atlasflow
+
+  # Worker Service
+  worker-service:
+    build:
+      context: .
+      dockerfile: backend/worker-service/Dockerfile
+    container_name: atlasflow-worker
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-atlasflow}
+      DB_PASSWORD: ${DB_PASSWORD:-atlasflow_dev}
+      DB_NAME: ${DB_NAME:-atlasflow}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      NATS_URL: nats://nats:4222
+      PORT: 8003
+      JWT_SECRET: ${JWT_SECRET:-your-secret-key-change-in-production}
+    ports:
+      - "8003:8003"
+    depends_on:
+      - postgres
+      - redis
+      - nats
+    networks:
+      - atlasflow
+
+  # Event Service
+  event-service:
+    build:
+      context: .
+      dockerfile: backend/event-service/Dockerfile
+    container_name: atlasflow-event
+    environment:
+      NATS_URL: nats://nats:4222
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      PORT: 8004
+    ports:
+      - "8004:8004"
+    depends_on:
+      - nats
+      - redis
+    networks:
+      - atlasflow
+
+  # API Gateway
+  gateway-service:
+    build:
+      context: .
+      dockerfile: backend/gateway-service/Dockerfile
+    container_name: atlasflow-gateway
+    environment:
+      AUTH_SERVICE_URL: http://auth-service:8001
+      WORKFLOW_SERVICE_URL: http://workflow-service:8002
+      WORKER_SERVICE_URL: http://worker-service:8003
+      EVENT_SERVICE_URL: http://event-service:8004
+      PORT: 8000
+      JWT_SECRET: ${JWT_SECRET:-your-secret-key-change-in-production}
+    ports:
+      - "8000:8000"
+    depends_on:
+      - auth-service
+      - workflow-service
+      - worker-service
+      - event-service
+    networks:
+      - atlasflow
+
+  # Frontend (Next.js)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: atlasflow-frontend
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - gateway-service
+    networks:
+      - atlasflow
+
+volumes:
+  postgres_data:
+  redis_data:
+  nats_data:
+
+networks:
+  atlasflow:
+    driver: bridge

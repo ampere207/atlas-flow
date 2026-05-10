@@ -1,0 +1,32 @@
+# Build outputs
+bin/
+dist/
+*.out
+*.test
+
+# Dependencies
+node_modules/
+vendor/
+
+# Environment
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Frontend
+frontend/.next/
+frontend/out/
+
+# Logs
+*.log
+npm-debug.log*

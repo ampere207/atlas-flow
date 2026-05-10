@@ -1,0 +1,10 @@
+.git
+.github
+.vscode
+**/.DS_Store
+**/node_modules
+**/.next
+**/dist
+**/bin
+**/*.log
+frontend/.env*
