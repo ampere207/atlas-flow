@@ -181,14 +181,12 @@ services:
       context: backend
       dockerfile: Dockerfile.worker
     container_name: atlasflow-worker-1
+    env_file:
+      - .env.worker-runtime
+    entrypoint: ["/bin/sh", "-c"]
     environment:
       NATS_URL: nats://nats:4222
-    command: 
-      - --nats=nats://nats:4222
-      - --id=worker-1
-      - --user-id=demo-user
-      - --capabilities=http_request,script,echo
-      - --capacity=5
+    command: ["exec ./atlasflow-worker --nats=nats://nats:4222 --id=worker-1 --user-id=$$ATLASFLOW_USER_ID --capabilities=http_request,script,echo --capacity=5"]
     depends_on:
       - nats
       - workflow-service
@@ -207,14 +205,12 @@ services:
       context: backend
       dockerfile: Dockerfile.worker
     container_name: atlasflow-worker-2
+    env_file:
+      - .env.worker-runtime
+    entrypoint: ["/bin/sh", "-c"]
     environment:
       NATS_URL: nats://nats:4222
-    command:
-      - --nats=nats://nats:4222
-      - --id=worker-2
-      - --user-id=demo-user
-      - --capabilities=db_query,echo
-      - --capacity=8
+    command: ["exec ./atlasflow-worker --nats=nats://nats:4222 --id=worker-2 --user-id=$$ATLASFLOW_USER_ID --capabilities=db_query,echo --capacity=8"]
     depends_on:
       - nats
       - workflow-service
@@ -233,14 +229,12 @@ services:
       context: backend
       dockerfile: Dockerfile.worker
     container_name: atlasflow-worker-3
+    env_file:
+      - .env.worker-runtime
+    entrypoint: ["/bin/sh", "-c"]
     environment:
       NATS_URL: nats://nats:4222
-    command:
-      - --nats=nats://nats:4222
-      - --id=worker-3
-      - --user-id=demo-user
-      - --capabilities=http_request,script,db_query,echo
-      - --capacity=10
+    command: ["exec ./atlasflow-worker --nats=nats://nats:4222 --id=worker-3 --user-id=$$ATLASFLOW_USER_ID --capabilities=http_request,script,db_query,echo --capacity=10"]
     depends_on:
       - nats
       - workflow-service

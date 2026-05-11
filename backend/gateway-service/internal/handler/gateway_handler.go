@@ -200,7 +200,7 @@ func (gh *GatewayHandler) GetWorker(c *gin.Context) {
 	gh.copyResponse(c.Writer, resp)
 }
 
-// ListWorkers proxies worker list to worker service
+// ListWorkers proxies worker list to workflow service (where orchestrator manages workers)
 func (gh *GatewayHandler) ListWorkers(c *gin.Context) {
 	limit := c.Query("limit")
 	offset := c.Query("offset")
@@ -217,9 +217,9 @@ func (gh *GatewayHandler) ListWorkers(c *gin.Context) {
 			path += "offset=" + offset
 		}
 	}
-	resp, err := gh.proxy.ProxyToWorkerService(http.MethodGet, path, c.Request.Header, nil)
+	resp, err := gh.proxy.ProxyToWorkflowService(http.MethodGet, path, c.Request.Header, nil)
 	if err != nil {
-		middleware.RespondError(c.Writer, http.StatusBadGateway, "failed to reach worker service")
+		middleware.RespondError(c.Writer, http.StatusBadGateway, "failed to reach workflow service")
 		return
 	}
 	gh.copyResponse(c.Writer, resp)
@@ -232,6 +232,16 @@ func (gh *GatewayHandler) RecordHeartbeat(c *gin.Context) {
 	resp, err := gh.proxy.ProxyToWorkerService(http.MethodPost, "/workers/"+id+"/heartbeat", c.Request.Header, body)
 	if err != nil {
 		middleware.RespondError(c.Writer, http.StatusBadGateway, "failed to reach worker service")
+		return
+	}
+	gh.copyResponse(c.Writer, resp)
+}
+
+// GetClusterMetrics proxies cluster metrics to workflow service
+func (gh *GatewayHandler) GetClusterMetrics(c *gin.Context) {
+	resp, err := gh.proxy.ProxyToWorkflowService(http.MethodGet, "/cluster/metrics", c.Request.Header, nil)
+	if err != nil {
+		middleware.RespondError(c.Writer, http.StatusBadGateway, "failed to reach workflow service")
 		return
 	}
 	gh.copyResponse(c.Writer, resp)

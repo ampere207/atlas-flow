@@ -7,9 +7,14 @@ import { apiClient } from '@/lib/api-client';
 import Sidebar from '@/components/Sidebar';
 
 interface Worker {
-  id: string;
-  name: string;
+  worker_id: string;
+  user_id: string;
   status: string;
+  capabilities: string[];
+  capacity: number;
+  running_tasks: number;
+  completed_tasks: number;
+  failed_tasks: number;
   last_heartbeat: string;
 }
 
@@ -33,7 +38,7 @@ export default function WorkersPage() {
     try {
       setLoading(true);
       const result = await apiClient.listWorkers(100, 0);
-      setWorkers(result.data || []);
+      setWorkers(result || []);
     } catch (error) {
       console.error('Failed to fetch workers:', error);
     } finally {
@@ -58,10 +63,10 @@ export default function WorkersPage() {
   };
 
   const activeWorkers = workers.filter(
-    (w) => w.status === 'active' || w.status === 'idle'
+    (w) => w.status === 'active' || w.status === 'idle' || w.status === 'connected'
   );
   const inactiveWorkers = workers.filter(
-    (w) => w.status !== 'active' && w.status !== 'idle'
+    (w) => w.status !== 'active' && w.status !== 'idle' && w.status !== 'connected'
   );
 
   return (
@@ -147,21 +152,24 @@ export default function WorkersPage() {
                   <div className="space-y-3">
                     {workers.map((worker) => (
                       <div
-                        key={worker.id}
+                        key={worker.worker_id}
                         className="p-4 bg-slate-700/30 hover:bg-slate-600/40 border border-slate-600/30 hover:border-slate-500/50 rounded-lg transition-all"
                       >
                         <div className="flex items-start justify-between">
                           <div className="flex-1">
                             <p className="text-white font-semibold">
-                              {worker.name}
+                              {worker.worker_id}
                             </p>
                             <p className="text-xs text-slate-400 mt-1">
-                              ID: {worker.id}
+                              Capabilities: {worker.capabilities?.join(', ') || 'none'}
+                            </p>
+                            <p className="text-xs text-slate-500 mt-0.5">
+                              Tasks: {worker.running_tasks}/{worker.capacity} · Completed: {worker.completed_tasks} · Failed: {worker.failed_tasks}
                             </p>
                           </div>
                           <span
                             className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap ml-4 ${
-                              worker.status === 'active'
+                              worker.status === 'active' || worker.status === 'connected'
                                 ? 'bg-green-500/20 text-green-300'
                                 : worker.status === 'idle'
                                 ? 'bg-yellow-500/20 text-yellow-300'

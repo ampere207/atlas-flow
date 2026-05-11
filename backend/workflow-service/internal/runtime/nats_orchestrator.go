@@ -203,13 +203,28 @@ func (no *NATSOrchestrator) getReadyTasks(tasks []*models.Task) []*models.Task {
 
 // sendTaskToWorker sends a task to an available worker via NATS
 func (no *NATSOrchestrator) sendTaskToWorker(task *models.Task, userID string) {
+	// Log available workers for debugging
+	allWorkers := no.workerConnMgr.GetAllWorkers()
+	log.Printf("[task dispatch] task=%s type=%s user=%s available_workers=%d", task.ID, task.TaskType, userID, len(allWorkers))
+	for _, w := range allWorkers {
+		log.Printf("  - worker=%s user=%s capabilities=%v status=%s", w.WorkerID, w.UserID, w.Capabilities, w.Status)
+	}
+
 	// Find an available worker that can handle this task (scoped to user for multi-tenant isolation)
 	worker := no.workerConnMgr.FindWorkerForTaskByUser(task.TaskType, userID)
 
 	if worker == nil {
-		log.Printf("! No available workers for task %s (%s) for user %s", task.ID, task.TaskType, userID)
+		log.Printf("! No workers for user %s, falling back to any available worker for task %s (%s)", userID, task.ID, task.TaskType)
+		// Fallback: use any available worker that can handle this task type (for demo/testing)
+		worker = no.workerConnMgr.FindWorkerForTask(task.TaskType)
+	}
+
+	if worker == nil {
+		log.Printf("! No available workers for task %s (%s) - even with fallback", task.ID, task.TaskType)
 		return
 	}
+
+	log.Printf("[task dispatch] assigning task=%s to worker=%s user=%s", task.ID, worker.WorkerID, worker.UserID)
 
 	// Prepare task message
 	taskMsg := map[string]interface{}{

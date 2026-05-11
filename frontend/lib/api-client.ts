@@ -116,7 +116,7 @@ class APIClient {
     const response = await this.client.get('/workers', {
       params: { limit, offset },
     });
-    return response.data;
+    return response.data?.data || [];
   }
 
   async recordHeartbeat(id: string, status: string) {

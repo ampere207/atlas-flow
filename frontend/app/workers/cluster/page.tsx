@@ -8,9 +8,14 @@ import { apiClient } from '@/lib/api-client';
 import { useAuthStore } from '@/store/auth';
 
 interface Worker {
-  id: string;
-  name: string;
+  worker_id: string;
+  user_id: string;
   status: string;
+  capabilities: string[];
+  capacity: number;
+  running_tasks: number;
+  completed_tasks: number;
+  failed_tasks: number;
   last_heartbeat: string;
 }
 
@@ -31,7 +36,7 @@ export default function WorkerClusterPage() {
       try {
         const result = await apiClient.listWorkers(50, 0);
         if (active) {
-          setWorkers(result.data || []);
+          setWorkers(result || []);
         }
       } catch (error) {
         console.error('Failed to load workers:', error);
@@ -51,7 +56,7 @@ export default function WorkerClusterPage() {
   }, [isAuthenticated]);
 
   const activeCount = useMemo(
-    () => workers.filter((worker) => worker.status === 'active' || worker.status === 'idle').length,
+    () => workers.filter((worker) => worker.status === 'active' || worker.status === 'idle' || worker.status === 'connected').length,
     [workers]
   );
   const offlineCount = Math.max(workers.length - activeCount, 0);
@@ -105,16 +110,31 @@ export default function WorkerClusterPage() {
                 ) : (
                   <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                     {workers.map((worker) => (
-                      <article key={worker.id} className="rounded-2xl border border-white/10 bg-slate-950/40 p-5 transition hover:border-cyan-400/30 hover:bg-slate-950/60">
+                      <article key={worker.worker_id} className="rounded-2xl border border-white/10 bg-slate-950/40 p-5 transition hover:border-cyan-400/30 hover:bg-slate-950/60">
                         <div className="flex items-start justify-between gap-4">
                           <div className="min-w-0">
-                            <h3 className="truncate text-lg font-semibold text-white">{worker.name}</h3>
-                            <p className="mt-1 text-xs text-slate-400">ID: {worker.id}</p>
+                            <h3 className="truncate text-lg font-semibold text-white">{worker.worker_id}</h3>
+                            <p className="mt-1 text-xs text-slate-400">{worker.capabilities?.join(', ') || 'none'}</p>
                           </div>
                           <WorkerBadge status={worker.status} />
                         </div>
 
-                        <div className="mt-5 rounded-xl border border-white/10 bg-white/5 p-4">
+                        <div className="mt-4 grid grid-cols-3 gap-2">
+                          <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-center">
+                            <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">Tasks</p>
+                            <p className="mt-1 text-lg font-semibold text-white">{worker.running_tasks}/{worker.capacity}</p>
+                          </div>
+                          <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-center">
+                            <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">Done</p>
+                            <p className="mt-1 text-lg font-semibold text-emerald-300">{worker.completed_tasks}</p>
+                          </div>
+                          <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-center">
+                            <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">Failed</p>
+                            <p className="mt-1 text-lg font-semibold text-rose-300">{worker.failed_tasks}</p>
+                          </div>
+                        </div>
+
+                        <div className="mt-3 rounded-xl border border-white/10 bg-white/5 p-4">
                           <p className="text-[11px] uppercase tracking-[0.25em] text-slate-400">Last heartbeat</p>
                           <p className="mt-2 text-sm text-slate-200">{new Date(worker.last_heartbeat).toLocaleString()}</p>
                         </div>
@@ -150,7 +170,7 @@ function MetricCard({ label, value, tone }: { label: string; value: number; tone
 function WorkerBadge({ status }: { status: string }) {
   const key = status.toLowerCase();
   const classes =
-    key === 'active'
+    key === 'active' || key === 'connected'
       ? 'bg-emerald-500/15 text-emerald-200 border-emerald-400/20'
       : key === 'idle'
         ? 'bg-cyan-500/15 text-cyan-200 border-cyan-400/20'

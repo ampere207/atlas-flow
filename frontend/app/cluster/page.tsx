@@ -36,23 +36,43 @@ export default function WorkerClusterPage() {
   const fetchClusterStatus = async () => {
     try {
       const token = localStorage.getItem('auth_token');
-      const [workersRes, metricsRes] = await Promise.all([
-        axios.get(
-          `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/workers?limit=100`,
-          {
-            headers: { Authorization: `Bearer ${token}` },
-          }
-        ),
-        axios.get(
-          `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/cluster/metrics`,
-          {
-            headers: { Authorization: `Bearer ${token}` },
-          }
-        ),
-      ]);
+      const workersRes = await axios.get(
+        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/workers?limit=100`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
 
-      setWorkers(workersRes.data || []);
-      setMetrics(metricsRes.data);
+      // Map API response to WorkerStatus format
+      const mappedWorkers = ((workersRes.data?.data || workersRes.data || []) as any[]).map((w: any) => ({
+        id: w.worker_id,
+        name: w.worker_id, // Use worker_id as display name
+        status: w.status === 'dead' ? 'offline' : w.status || 'idle',
+        last_heartbeat: w.last_heartbeat,
+        assigned_tasks_count: w.running_tasks || 0,
+        total_tasks_completed: w.completed_tasks || 0,
+      }));
+
+      setWorkers(mappedWorkers);
+      
+      // Calculate metrics from workers
+      if (mappedWorkers.length > 0) {
+        const activeWorkers = mappedWorkers.filter(w => w.status === 'active').length;
+        const idleWorkers = mappedWorkers.filter(w => w.status === 'idle').length;
+        const offlineWorkers = mappedWorkers.filter(w => w.status === 'offline').length;
+        const totalCompleted = mappedWorkers.reduce((sum, w) => sum + (w.total_tasks_completed || 0), 0);
+        const totalInQueue = mappedWorkers.reduce((sum, w) => sum + (w.assigned_tasks_count || 0), 0);
+
+        setMetrics({
+          total_workers: mappedWorkers.length,
+          active_workers: activeWorkers,
+          idle_workers: idleWorkers,
+          offline_workers: offlineWorkers,
+          total_tasks_in_queue: totalInQueue,
+          completed_tasks_total: totalCompleted,
+        });
+      }
+      
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch cluster status');
@@ -82,7 +102,7 @@ export default function WorkerClusterPage() {
     return `${Math.floor(seconds / 3600)}h ago`;
   };
 
-  if (loading && !metrics) {
+  if (loading && workers.length === 0) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">

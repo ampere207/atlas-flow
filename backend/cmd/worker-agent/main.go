@@ -96,8 +96,8 @@ func main() {
 
 	// Create worker agent
 	agent := &WorkerAgent{
-		id:           *workerID,
-		userID:       *userID,
+		id:           strings.TrimSpace(*workerID),
+		userID:       strings.TrimSpace(*userID),
 		natsConn:     nc,
 		capabilities: caps,
 		capacity:     int32(*capacity),
@@ -236,6 +236,8 @@ func (wa *WorkerAgent) heartbeatLoop() {
 			hb := HeartbeatMessage{
 				WorkerID:       wa.id,
 				UserID:         wa.userID,
+				Status:         "connected",
+				Capabilities:   wa.capabilities,
 				Capacity:       wa.capacity,
 				RunningTasks:   atomic.LoadInt32(&wa.runningTasks),
 				CompletedTasks: atomic.LoadInt64(&completedCount),

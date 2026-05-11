@@ -112,6 +112,7 @@ func main() {
 		protected.GET("/workflows/:id/status", workflowHandler.GetWorkflowExecutionStatus)
 		protected.PUT("/workflows/:id/status", workflowHandler.UpdateWorkflowStatus)
 		protected.GET("/workers", workflowHandler.GetWorkers)
+		protected.GET("/cluster/metrics", workflowHandler.GetClusterMetrics)
 	}
 
 	// Start server

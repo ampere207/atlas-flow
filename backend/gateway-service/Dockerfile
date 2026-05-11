@@ -2,13 +2,13 @@ FROM golang:1.25-alpine AS builder
 
 WORKDIR /app/backend
 
-COPY backend/go.mod ./
+COPY backend/go.mod backend/go.sum ./
 
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
 
 COPY backend/. .
 
-RUN go build -o /app/gateway-service ./gateway-service/cmd/main.go
+RUN --mount=type=cache,target=/go/pkg/mod go build -o /app/gateway-service ./gateway-service/cmd/main.go
 
 FROM alpine:latest
 

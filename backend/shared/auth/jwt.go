@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"time"
@@ -45,10 +47,19 @@ func (jm *JWTManager) GenerateAccessToken(userID, email string) (string, error) 
 	return token.SignedString([]byte(jm.secretKey))
 }
 
-// GenerateRefreshToken generates a long-lived refresh token
+// GenerateRefreshToken generates a long-lived refresh token with unique ID
 func (jm *JWTManager) GenerateRefreshToken(userID string) (string, error) {
+	// Generate a unique JWT ID (jti) to ensure refresh tokens are always unique
+	randomBytes := make([]byte, 16)
+	_, err := rand.Read(randomBytes)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate random token ID: %w", err)
+	}
+	jti := hex.EncodeToString(randomBytes)
+
 	claims := jwt.RegisteredClaims{
 		Subject:   userID,
+		ID:        jti,                                              // Unique token ID
 		ExpiresAt: jwt.NewNumericDate(time.Now().AddDate(0, 0, 30)), // 30 days
 		IssuedAt:  jwt.NewNumericDate(time.Now()),
 	}

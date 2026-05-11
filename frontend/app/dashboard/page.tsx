@@ -16,9 +16,14 @@ interface Workflow {
 }
 
 interface Worker {
-  id: string;
-  name: string;
+  worker_id: string;
+  user_id: string;
   status: string;
+  capabilities: string[];
+  capacity: number;
+  running_tasks: number;
+  completed_tasks: number;
+  failed_tasks: number;
   last_heartbeat: string;
 }
 
@@ -28,6 +33,7 @@ const statusPalette: Record<string, string> = {
   completed: 'from-emerald-400 to-green-500',
   failed: 'from-rose-400 to-red-500',
   active: 'from-emerald-400 to-green-500',
+  connected: 'from-emerald-400 to-green-500',
   idle: 'from-sky-400 to-cyan-500',
   offline: 'from-slate-500 to-slate-600',
 };
@@ -60,7 +66,7 @@ export default function DashboardPage() {
         }
 
         setWorkflows(workflowResult.data || []);
-        setWorkers(workerResult.data || []);
+        setWorkers(workerResult || []);
       } catch (error) {
         console.error('Failed to fetch dashboard data:', error);
       } finally {
@@ -92,7 +98,7 @@ export default function DashboardPage() {
       { total: 0, pending: 0, running: 0, completed: 0, failed: 0 }
     );
 
-    const activeWorkers = workers.filter((worker) => worker.status === 'active' || worker.status === 'idle').length;
+    const activeWorkers = workers.filter((worker) => worker.status === 'active' || worker.status === 'idle' || worker.status === 'connected').length;
     const offlineWorkers = Math.max(workers.length - activeWorkers, 0);
 
     return {
@@ -103,7 +109,7 @@ export default function DashboardPage() {
   }, [workflows, workers]);
 
   const recentWorkflows = workflows.slice(0, 6);
-  const activeWorkerList = workers.filter((worker) => worker.status === 'active' || worker.status === 'idle').slice(0, 5);
+  const activeWorkerList = workers.filter((worker) => worker.status === 'active' || worker.status === 'idle' || worker.status === 'connected').slice(0, 5);
 
   const workflowSeries = useMemo(() => {
     const days = Array.from({ length: 7 }, (_, index) => {
@@ -123,9 +129,9 @@ export default function DashboardPage() {
   }, [workflows]);
 
   const workerStatusBreakdown = useMemo(() => {
-    const active = workers.filter((worker) => worker.status === 'active').length;
+    const active = workers.filter((worker) => worker.status === 'active' || worker.status === 'connected').length;
     const idle = workers.filter((worker) => worker.status === 'idle').length;
-    const offline = workers.filter((worker) => worker.status !== 'active' && worker.status !== 'idle').length;
+    const offline = workers.filter((worker) => worker.status !== 'active' && worker.status !== 'idle' && worker.status !== 'connected').length;
 
     return [
       { label: 'Active', value: active, tone: 'emerald' },
@@ -292,11 +298,12 @@ export default function DashboardPage() {
                     <EmptyState title="No active workers" description="Register a worker to start serving tasks." actionHref="/workers" actionLabel="Register worker" compact />
                   ) : (
                     activeWorkerList.map((worker) => (
-                      <div key={worker.id} className="rounded-[1.1rem] border border-white/10 bg-slate-950/40 p-4 transition hover:border-cyan-400/25">
+                      <div key={worker.worker_id} className="rounded-[1.1rem] border border-white/10 bg-slate-950/40 p-4 transition hover:border-cyan-400/25">
                         <div className="flex items-center justify-between gap-3">
                           <div className="min-w-0">
-                            <p className="truncate font-medium text-white">{worker.name}</p>
-                            <p className="mt-1 text-xs text-slate-400">Heartbeat {new Date(worker.last_heartbeat).toLocaleTimeString()}</p>
+                            <p className="truncate font-medium text-white">{worker.worker_id}</p>
+                            <p className="mt-1 text-xs text-slate-400">{worker.capabilities?.join(', ')} · {worker.running_tasks}/{worker.capacity} tasks</p>
+                            <p className="mt-0.5 text-xs text-slate-500">Heartbeat {new Date(worker.last_heartbeat).toLocaleTimeString()}</p>
                           </div>
                           <StatusBadge status={worker.status} />
                         </div>
@@ -364,7 +371,7 @@ function StatusBadge({ status }: { status: string }) {
         ? 'bg-emerald-500/15 text-emerald-200 border-emerald-400/20'
         : key === 'pending'
           ? 'bg-amber-500/15 text-amber-200 border-amber-400/20'
-          : key === 'active' || key === 'idle'
+          : key === 'active' || key === 'idle' || key === 'connected'
             ? 'bg-cyan-500/15 text-cyan-200 border-cyan-400/20'
             : 'bg-rose-500/15 text-rose-200 border-rose-400/20';
 

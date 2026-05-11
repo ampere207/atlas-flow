@@ -76,6 +76,7 @@ func main() {
 		protected.GET("/workers/:id", gatewayHandler.GetWorker)
 		protected.GET("/workers", gatewayHandler.ListWorkers)
 		protected.POST("/workers/:id/heartbeat", gatewayHandler.RecordHeartbeat)
+		protected.GET("/cluster/metrics", gatewayHandler.GetClusterMetrics)
 	}
 
 	// Start server

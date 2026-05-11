@@ -69,6 +69,42 @@ sleep 5
 echo -e "${GREEN}✓ Infrastructure started (PostgreSQL, Redis, NATS, Auth, Orchestrator, Frontend)${NC}"
 echo ""
 
+echo -e "${BLUE}[5/6]${NC} Resolving authenticated user identity for worker registration..."
+AUTH_URL="http://localhost:8001/auth"
+AUTH_EMAIL="${ATLASFLOW_AUTH_EMAIL:-aashrith@gmail.com}"
+AUTH_PASSWORD="${ATLASFLOW_AUTH_PASSWORD:-aashrith}"
+
+LOGIN_RESPONSE=$(curl -s -X POST "$AUTH_URL/login" \
+    -H "Content-Type: application/json" \
+    -d "{\"email\": \"$AUTH_EMAIL\", \"password\": \"$AUTH_PASSWORD\"}")
+
+if ! echo "$LOGIN_RESPONSE" | grep -q '"access_token"'; then
+    curl -s -X POST "$AUTH_URL/signup" \
+        -H "Content-Type: application/json" \
+        -d "{\"email\": \"$AUTH_EMAIL\", \"full_name\": \"Atlas User\", \"password\": \"$AUTH_PASSWORD\"}" >/dev/null 2>&1 || true
+    LOGIN_RESPONSE=$(curl -s -X POST "$AUTH_URL/login" \
+        -H "Content-Type: application/json" \
+        -d "{\"email\": \"$AUTH_EMAIL\", \"password\": \"$AUTH_PASSWORD\"}")
+fi
+
+ATLASFLOW_USER_ID=$(echo "$LOGIN_RESPONSE" | grep -o '"user":{"id":"[^"]*' | cut -d'"' -f6)
+if [ -z "$ATLASFLOW_USER_ID" ]; then
+    echo -e "${RED}✗ Failed to resolve authenticated user ID from auth service${NC}"
+    echo "   Response: $LOGIN_RESPONSE"
+    exit 1
+fi
+
+export ATLASFLOW_USER_ID
+echo -e "${GREEN}✓ Authenticated user resolved: $AUTH_EMAIL -> $ATLASFLOW_USER_ID${NC}"
+echo ""
+
+WORKER_ENV_FILE="$SCRIPT_DIR/../.env.worker-runtime"
+cat > "$WORKER_ENV_FILE" <<EOF
+ATLASFLOW_USER_ID=$ATLASFLOW_USER_ID
+EOF
+echo -e "${GREEN}✓ Worker runtime env written to .env.worker-runtime${NC}"
+echo ""
+
 # Start demo workers
 echo -e "${BLUE}[6/6]${NC} Starting demo workers..."
 docker-compose up -d worker-1 worker-2 worker-3

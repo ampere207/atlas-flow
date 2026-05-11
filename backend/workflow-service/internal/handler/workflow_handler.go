@@ -302,3 +302,48 @@ func (wh *WorkflowHandler) GetWorkers(c *gin.Context) {
 
 	middleware.RespondJSON(c.Writer, http.StatusOK, response)
 }
+
+// GetClusterMetrics retrieves cluster-wide metrics
+func (wh *WorkflowHandler) GetClusterMetrics(c *gin.Context) {
+	userID := middleware.ExtractUserID(c.Request)
+	if userID == "" {
+		middleware.RespondError(c.Writer, http.StatusUnauthorized, "user not authenticated")
+		return
+	}
+
+	// Get workers owned by this user
+	workers := wh.workerConnMgr.GetWorkersByUser(userID)
+
+	// Calculate metrics
+	activeWorkers := 0
+	idleWorkers := 0
+	offlineWorkers := 0
+	totalCompletedTasks := int64(0)
+	totalRunningTasks := int32(0)
+
+	for _, w := range workers {
+		switch w.Status {
+		case "connected":
+			if w.RunningTasks > 0 {
+				activeWorkers++
+			} else {
+				idleWorkers++
+			}
+		case "dead", "disconnected":
+			offlineWorkers++
+		}
+		totalCompletedTasks += w.CompletedTasks
+		totalRunningTasks += w.RunningTasks
+	}
+
+	response := map[string]interface{}{
+		"total_workers":         len(workers),
+		"active_workers":        activeWorkers,
+		"idle_workers":          idleWorkers,
+		"offline_workers":       offlineWorkers,
+		"total_tasks_in_queue":  totalRunningTasks,
+		"completed_tasks_total": totalCompletedTasks,
+	}
+
+	middleware.RespondJSON(c.Writer, http.StatusOK, response)
+}

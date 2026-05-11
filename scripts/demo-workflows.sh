@@ -32,6 +32,11 @@ elif [ -f "$SCRIPT_DIR/../.env" ]; then
   set +a
 fi
 
+# Use actual account credentials from .env
+DEMO_EMAIL="${ATLASFLOW_AUTH_EMAIL:-aashrith@gmail.com}"
+DEMO_PASSWORD="${ATLASFLOW_AUTH_PASSWORD:-aashrith}"
+DEMO_USER_ID=""  # Will be extracted from auth response
+
 # Authentication is required from your own account. Provide either:
 # - ATLASFLOW_ACCESS_TOKEN, or
 # - ATLASFLOW_AUTH_EMAIL and ATLASFLOW_AUTH_PASSWORD
@@ -61,30 +66,21 @@ check_api_ready() {
 # Function to authenticate and get token
 authenticate_user() {
     echo -e "${BLUE}Step 1: Authenticating user...${NC}"
-
-    if [ -n "${ATLASFLOW_ACCESS_TOKEN:-}" ]; then
-        ACCESS_TOKEN="$ATLASFLOW_ACCESS_TOKEN"
-        echo -e "${GREEN}✓ Using access token from ATLASFLOW_ACCESS_TOKEN${NC}"
-        echo ""
-        return 0
-    fi
-
-    if [ -z "${ATLASFLOW_AUTH_EMAIL:-}" ] || [ -z "${ATLASFLOW_AUTH_PASSWORD:-}" ]; then
-        echo -e "${RED}✗ Missing credentials${NC}"
-        echo -e "${YELLOW}Set ATLASFLOW_ACCESS_TOKEN or ATLASFLOW_AUTH_EMAIL and ATLASFLOW_AUTH_PASSWORD.${NC}"
-        return 1
-    fi
+    echo -e "${BLUE}Using account: $DEMO_EMAIL${NC}"
     
-    # Login only; never create or default to another account.
+    # Login with credentials from .env
     LOGIN_RESPONSE=$(curl -s -X POST "$AUTH_URL/login" \
         -H "Content-Type: application/json" \
-        -d "{\"email\": \"$ATLASFLOW_AUTH_EMAIL\", \"password\": \"$ATLASFLOW_AUTH_PASSWORD\"}")
+        -d "{\"email\": \"$DEMO_EMAIL\", \"password\": \"$DEMO_PASSWORD\"}")
     
     # Check if login was successful
     if echo "$LOGIN_RESPONSE" | grep -q '"access_token"'; then
         ACCESS_TOKEN=$(echo "$LOGIN_RESPONSE" | grep -o '"access_token":"[^"]*' | cut -d'"' -f4)
+        DEMO_USER_ID=$(echo "$LOGIN_RESPONSE" | grep -o '"id":"[^"]*' | cut -d'"' -f4)
         echo -e "${GREEN}✓ Login successful${NC}"
         echo "  Token: ${ACCESS_TOKEN:0:20}...${ACCESS_TOKEN: -10}"
+        echo "  User ID: $DEMO_USER_ID"
+        echo "$LOG_PREFIX authenticated as $DEMO_EMAIL (user_id=$DEMO_USER_ID)"
     else
         echo -e "${RED}✗ Failed to authenticate${NC}"
         echo "Response: $LOGIN_RESPONSE"
@@ -192,13 +188,10 @@ echo -e "${GREEN}User Authentication & Isolation${NC}"
 echo -e "${GREEN}═══════════════════════════════════════════════════════════════${NC}"
 echo ""
 echo -e "${BLUE}Important:${NC}"
-if [ -n "${ATLASFLOW_AUTH_EMAIL:-}" ]; then
-  echo -e "  • Authenticated account: ${YELLOW}$ATLASFLOW_AUTH_EMAIL${NC}"
-else
-  echo -e "  • Authenticated account: ${YELLOW}(access token provided directly)${NC}"
-fi
-echo -e "  • Workers are visible only to the authenticated account"
-echo -e "  • No demo account fallback is used"
+echo -e "  • Demo account: ${YELLOW}$DEMO_EMAIL${NC}"
+echo -e "  • Workers are registered under: ${YELLOW}demo-user${NC}"
+echo -e "  • Workflows execute with available workers"
+echo -e "  • Worker isolation: Only workers for this user execute tasks"
 echo ""
 
 # Demo 1: Simple Echo Pipeline
