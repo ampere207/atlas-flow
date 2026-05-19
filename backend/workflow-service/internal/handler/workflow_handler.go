@@ -12,19 +12,23 @@ import (
 	"atlasflow/backend/shared/middleware"
 	"atlasflow/backend/shared/runtime"
 	"atlasflow/backend/workflow-service/internal/service"
+
+	"github.com/nats-io/nats.go"
 )
 
 // WorkflowHandler handles workflow routes
 type WorkflowHandler struct {
 	service       *service.WorkflowService
 	workerConnMgr *runtime.WorkerConnectionManager
+	natsConn      *nats.Conn
 }
 
 // NewWorkflowHandler creates a new workflow handler
-func NewWorkflowHandler(service *service.WorkflowService, workerConnMgr *runtime.WorkerConnectionManager) *WorkflowHandler {
+func NewWorkflowHandler(service *service.WorkflowService, workerConnMgr *runtime.WorkerConnectionManager, nc *nats.Conn) *WorkflowHandler {
 	return &WorkflowHandler{
 		service:       service,
 		workerConnMgr: workerConnMgr,
+		natsConn:      nc,
 	}
 }
 
@@ -230,6 +234,8 @@ func (wh *WorkflowHandler) StreamWorkflowExecution(c *gin.Context) {
 		return
 	}
 
+	workflowID := c.Param("id")
+
 	c.Writer.Header().Set("Content-Type", "text/event-stream")
 	c.Writer.Header().Set("Cache-Control", "no-cache")
 	c.Writer.Header().Set("Connection", "keep-alive")
@@ -241,27 +247,78 @@ func (wh *WorkflowHandler) StreamWorkflowExecution(c *gin.Context) {
 		return
 	}
 
-	workflowID := c.Param("id")
-	ticker := time.NewTicker(2 * time.Second)
+	// 1. Send initial snapshot
+	initialWorkflow, _ := wh.service.GetWorkflowExecutionStatus(workflowID, userID)
+	initialTasks, _ := wh.service.ListWorkflowTasks(workflowID, userID)
+	initialHistory, _ := wh.service.ListWorkflowHistory(workflowID, userID)
+	
+	initialPayload := map[string]interface{}{
+		"workflow": initialWorkflow,
+		"tasks":    initialTasks,
+		"history":  initialHistory,
+	}
+	encodedInitial, _ := json.Marshal(initialPayload)
+	_, _ = c.Writer.Write([]byte("event: snapshot\n"))
+	_, _ = c.Writer.Write([]byte("data: "))
+	_, _ = c.Writer.Write(encodedInitial)
+	_, _ = c.Writer.Write([]byte("\n\n"))
+	flusher.Flush()
+
+	// 2. Subscribe to real-time events via NATS
+	eventChan := make(chan *runtime.ExecutionEvent, 10)
+	
+	// Subscribe to all relevant events for this workflow
+	// This covers workflow events and all task events belonging to this workflow
+	sub, err := wh.natsConn.Subscribe("workflows."+workflowID+".events", func(msg *nats.Msg) {
+		var event runtime.ExecutionEvent
+		if err := json.Unmarshal(msg.Data, &event); err == nil {
+			eventChan <- &event
+		}
+	})
+	if err != nil {
+		log.Printf("Failed to subscribe to workflow events: %v", err)
+		return
+	}
+	defer sub.Unsubscribe()
+
+	// Also subscribe to task events and filter by workflow_id in the handler
+	// In a more optimized version, we might have a subject like tasks.wf.{workflow_id}.{task_id}.events
+	taskSub, err := wh.natsConn.Subscribe("tasks.*.events", func(msg *nats.Msg) {
+		var event runtime.ExecutionEvent
+		if err := json.Unmarshal(msg.Data, &event); err == nil {
+			if event.WorkflowID == workflowID {
+				eventChan <- &event
+			}
+		}
+	})
+	if err != nil {
+		log.Printf("Failed to subscribe to task events: %v", err)
+		return
+	}
+	defer taskSub.Unsubscribe()
+
+	ticker := time.NewTicker(10 * time.Second) // Keep-alive ticker
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-c.Request.Context().Done():
 			return
+		case event := <-eventChan:
+			encoded, _ := json.Marshal(event)
+			_, _ = c.Writer.Write([]byte("event: event\n"))
+			_, _ = c.Writer.Write([]byte("data: "))
+			_, _ = c.Writer.Write(encoded)
+			_, _ = c.Writer.Write([]byte("\n\n"))
+			flusher.Flush()
 		case <-ticker.C:
-			workflow, workflowErr := wh.service.GetWorkflowExecutionStatus(workflowID, userID)
-			tasks, tasksErr := wh.service.ListWorkflowTasks(workflowID, userID)
-			history, historyErr := wh.service.ListWorkflowHistory(workflowID, userID)
-			payload := map[string]interface{}{}
-			if workflowErr == nil {
-				payload["workflow"] = workflow
-			}
-			if tasksErr == nil {
-				payload["tasks"] = tasks
-			}
-			if historyErr == nil {
-				payload["history"] = history
+			// Periodic snapshot to ensure sync
+			workflow, _ := wh.service.GetWorkflowExecutionStatus(workflowID, userID)
+			tasks, _ := wh.service.ListWorkflowTasks(workflowID, userID)
+			
+			payload := map[string]interface{}{
+				"workflow": workflow,
+				"tasks":    tasks,
 			}
 			encoded, _ := json.Marshal(payload)
 			_, _ = c.Writer.Write([]byte("event: snapshot\n"))

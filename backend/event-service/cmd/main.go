@@ -15,7 +15,9 @@ import (
 	"atlasflow/backend/event-service/internal/handler"
 	"atlasflow/backend/event-service/internal/publisher"
 	"atlasflow/backend/event-service/internal/subscriber"
+	"atlasflow/backend/shared/db"
 	"atlasflow/backend/shared/middleware"
+	"atlasflow/backend/shared/runtime"
 )
 
 func main() {
@@ -30,6 +32,25 @@ func main() {
 	}
 	defer nc.Close()
 
+	// Connect to database
+	dbConfig := db.Config{
+		Host:     getEnv("DB_HOST", "localhost"),
+		Port:     5432,
+		User:     getEnv("DB_USER", "atlasflow"),
+		Password: getEnv("DB_PASSWORD", "atlasflow_dev"),
+		Database: getEnv("DB_NAME", "atlasflow"),
+		SSLMode:  getEnv("DB_SSL_MODE", "disable"),
+	}
+
+	database, err := db.NewConnection(dbConfig)
+	if err != nil {
+		log.Fatalf("Failed to connect to database: %v", err)
+	}
+	defer database.Close()
+
+	// Initialize event store
+	eventStore := runtime.NewPostgresEventStore(database)
+
 	// Initialize publisher
 	eventPublisher := publisher.NewNATSPublisher(nc)
 
@@ -38,7 +59,7 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	if err := subscriber.StartSubscriptions(ctx, nc); err != nil {
+	if err := subscriber.StartSubscriptions(ctx, nc, eventStore); err != nil {
 		log.Fatalf("Failed to start event subscriptions: %v", err)
 	}
 

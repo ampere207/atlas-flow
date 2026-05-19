@@ -156,6 +156,20 @@ func (wa *WorkerAgent) subscribeToTasks() {
 				atomic.AddInt32(&wa.runningTasks, -1)
 			}()
 
+			// Publish task_running event
+			runningEvent := map[string]interface{}{
+				"event_id":     fmt.Sprintf("evt_%d", time.Now().UnixNano()),
+				"event_type":   "task_running",
+				"workflow_id":  task.WorkflowID,
+				"task_id":      task.TaskID,
+				"worker_id":    wa.id,
+				"user_id":      wa.userID,
+				"timestamp":    time.Now().Format(time.RFC3339),
+				"data":         map[string]interface{}{"status": "running"},
+			}
+			runningJSON, _ := json.Marshal(runningEvent)
+			wa.natsConn.Publish(fmt.Sprintf("tasks.%s.events", task.TaskID), runningJSON)
+
 			result := wa.executeTask(&task)
 
 			// Publish result

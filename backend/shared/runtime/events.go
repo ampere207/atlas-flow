@@ -213,6 +213,7 @@ func (eb *EventBuilder) Build() *ExecutionEvent {
 // EventStore persists and retrieves events.
 type EventStore interface {
 	StoreEvent(ctx context.Context, event *ExecutionEvent) error
+	StoreEventBatch(ctx context.Context, events []*ExecutionEvent) error
 	GetEventsByWorkflow(ctx context.Context, workflowID string) ([]*ExecutionEvent, error)
 	GetEventsByTask(ctx context.Context, workflowID, taskID string) ([]*ExecutionEvent, error)
 	GetEventsSince(ctx context.Context, workflowID string, since time.Time) ([]*ExecutionEvent, error)

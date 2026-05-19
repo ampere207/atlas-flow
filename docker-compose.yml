@@ -143,12 +143,17 @@ services:
       NATS_URL: nats://nats:4222
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      DB_HOST: postgres
+      DB_USER: ${DB_USER:-atlasflow}
+      DB_PASSWORD: ${DB_PASSWORD:-atlasflow_dev}
+      DB_NAME: ${DB_NAME:-atlasflow}
       PORT: 8004
     ports:
       - "8004:8004"
     depends_on:
       - nats
       - redis
+      - postgres
     networks:
       - atlasflow
 

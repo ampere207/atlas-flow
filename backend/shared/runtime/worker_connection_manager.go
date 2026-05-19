@@ -40,17 +40,19 @@ type WorkerConnectionManager struct {
 	natsConn    *nats.Conn
 	connections map[string]*WorkerConnection
 	mu          sync.RWMutex
+	eventBus    EventPublisher
 	ctx         context.Context
 	cancel      context.CancelFunc
 }
 
 // NewWorkerConnectionManager creates a manager for tracking worker connections
-func NewWorkerConnectionManager(nc *nats.Conn) *WorkerConnectionManager {
+func NewWorkerConnectionManager(nc *nats.Conn, eventBus EventPublisher) *WorkerConnectionManager {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	wcm := &WorkerConnectionManager{
 		natsConn:    nc,
 		connections: make(map[string]*WorkerConnection),
+		eventBus:    eventBus,
 		ctx:         ctx,
 		cancel:      cancel,
 	}
@@ -143,6 +145,16 @@ func (wcm *WorkerConnectionManager) detectDeadWorkers() {
 		if conn.Status == "connected" && now.Sub(conn.LastHeartbeat) > heartbeatTimeout {
 			conn.Status = "dead"
 			log.Printf("! Worker detected as dead (no heartbeat): %s", workerID)
+
+			// Publish worker_dead event
+			if wcm.eventBus != nil {
+				event := NewEventBuilder(EventWorkerDead).
+					WorkerID(workerID).
+					UserID(conn.UserID).
+					Data("last_heartbeat", conn.LastHeartbeat).
+					Build()
+				wcm.eventBus.PublishEvent(context.Background(), event)
+			}
 		}
 	}
 }

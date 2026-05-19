@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { fetchEventSource } from '@microsoft/fetch-event-source';
 import { ExecutionGraph } from '@/components/execution/ExecutionGraph';
+import { ExecutionTimeline } from '@/components/execution/ExecutionTimeline';
 import { apiClient } from '@/lib/api-client';
 import { useAuthStore } from '@/store/auth';
 
@@ -30,6 +31,7 @@ interface WorkflowSnapshot {
     to_state: string;
     reason?: string;
     created_at: string;
+    worker_id?: string;
   }>;
 }
 
@@ -86,16 +88,38 @@ export default function WorkflowExecutionPage() {
           Authorization: `Bearer ${token}`,
         },
         onmessage(event) {
-          if (event.event !== 'snapshot') {
-            return;
-          }
+          if (cancelled) return;
+
           try {
-            const nextSnapshot = JSON.parse(event.data) as WorkflowSnapshot;
-            if (!cancelled) {
+            if (event.event === 'snapshot') {
+              const nextSnapshot = JSON.parse(event.data) as WorkflowSnapshot;
               setSnapshot(nextSnapshot);
+            } else if (event.event === 'event') {
+              const executionEvent = JSON.parse(event.data);
+              // Handle granular event to update state incrementally if needed
+              // For now, we'll just append to history and trigger a refresh of tasks
+              setSnapshot(prev => {
+                const newHistory = [...(prev.history || [])];
+                
+                // Add the transition event to history
+                newHistory.push({
+                  id: executionEvent.event_id,
+                  entity_type: executionEvent.task_id ? 'task' : 'workflow',
+                  from_state: executionEvent.data?.from_state || 'unknown',
+                  to_state: executionEvent.data?.to_state || executionEvent.event_type,
+                  reason: executionEvent.error_message || executionEvent.data?.reason,
+                  created_at: executionEvent.timestamp,
+                  worker_id: executionEvent.worker_id,
+                });
+
+                return {
+                  ...prev,
+                  history: newHistory,
+                };
+              });
             }
-          } catch {
-            // Ignore malformed stream payloads.
+          } catch (e) {
+            console.error('Failed to parse stream event', e);
           }
         },
         onclose() {
@@ -179,19 +203,9 @@ export default function WorkflowExecutionPage() {
           </div>
 
           <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-5">
-            <h2 className="text-lg font-semibold">Recent Transitions</h2>
-            <div className="mt-4 space-y-3">
-              {history.length === 0 ? (
-                <p className="text-sm text-slate-400">No transitions yet.</p>
-              ) : (
-                history.slice(-8).reverse().map((item) => (
-                  <div key={item.id} className="rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-sm">
-                    <div className="font-medium text-white">{item.entity_type}</div>
-                    <div className="text-slate-300">{item.from_state} → {item.to_state}</div>
-                    {item.reason ? <div className="mt-1 text-slate-400">{item.reason}</div> : null}
-                  </div>
-                ))
-              )}
+            <h2 className="text-lg font-semibold">Execution Timeline</h2>
+            <div className="mt-4">
+              <ExecutionTimeline events={history} />
             </div>
           </div>
         </aside>

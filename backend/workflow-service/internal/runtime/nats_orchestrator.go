@@ -81,6 +81,9 @@ func (no *NATSOrchestrator) Start(ctx context.Context) error {
 
 	log.Println("✓ NATS Orchestrator started")
 
+	// 0. Recover workflows that were running before restart
+	no.RecoverWorkflows()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -155,6 +158,21 @@ func (no *NATSOrchestrator) processWorkflow(workflow *models.Workflow) {
 
 	// Check for and handle dead worker tasks
 	no.handleOrphanedTasks(tasks)
+
+	// Ensure listeners are active for assigned/running tasks (e.g. after restart)
+	for _, task := range tasks {
+		if task.State == string(sharedruntime.TaskStateAssigned) || 
+		   task.State == string(sharedruntime.TaskStateRunning) {
+			no.resultListenersMu.RLock()
+			_, exists := no.resultListeners[task.ID]
+			no.resultListenersMu.RUnlock()
+			
+			if !exists {
+				log.Printf("[recovery] restoring result listener for task %s", task.ID)
+				no.setupResultListener(task.ID)
+			}
+		}
+	}
 }
 
 // getReadyTasks returns tasks that are ready to execute (all dependencies met)
@@ -430,8 +448,25 @@ func (no *NATSOrchestrator) handleOrphanedTasks(tasks []*models.Task) {
 
 // handleFailureRecovery periodically checks for dead workers
 func (no *NATSOrchestrator) handleFailureRecovery() {
-	// This is run by detectDeadWorkers in WorkerConnectionManager
-	// but we can add additional recovery logic here if needed
+	// 1. Get all workers and their status
+	// This is already handled by WorkerConnectionManager's heartbeat loop,
+	// which updates worker status to "dead" if no heartbeats received.
+}
+
+// RecoverWorkflows finds all non-terminal workflows and ensures they are being orchestrated
+func (no *NATSOrchestrator) RecoverWorkflows() {
+	log.Println("[recovery] Scanning for workflows to recover...")
+	
+	workflows, err := no.repo.GetRunningWorkflows()
+	if err != nil {
+		log.Printf("[recovery] ✗ Failed to list workflows for recovery: %v", err)
+		return
+	}
+	
+	for _, workflow := range workflows {
+		log.Printf("[recovery] Resuming orchestration for workflow: %s (%s)", workflow.Name, workflow.ID)
+		// The next orchestration cycle will pick this up via processWorkflow
+	}
 }
 
 // isWorkflowComplete checks if all tasks in a workflow are done

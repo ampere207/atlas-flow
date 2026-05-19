@@ -7,8 +7,8 @@ import { useAuthStore } from '@/store/auth';
 const menuItems = [
   { label: 'Dashboard', href: '/dashboard', icon: '📊' },
   { label: 'Workflows', href: '/workflows', icon: '⚙️' },
-  { label: 'Workers', href: '/workers/cluster', icon: '👷' },
-  { label: 'Timeline', href: '/timeline', icon: '📅' },
+  { label: 'Fleet Monitor', href: '/workers/monitor', icon: '📡' },
+  { label: 'Cluster Nodes', href: '/workers/cluster', icon: '👷' },
 ];
 
 export default function Sidebar() {

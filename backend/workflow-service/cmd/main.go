@@ -61,12 +61,12 @@ func main() {
 	workflowRepo := repository.NewWorkflowRepository(database)
 	workflowPublisher := workflowruntime.NewNATSPublisher(natsConn)
 
-	// Initialize worker connection manager (tracks connected workers via NATS heartbeats)
-	workerConnMgr := sharedruntime.NewWorkerConnectionManager(natsConn)
-	defer workerConnMgr.Stop()
+	// Initialize event bus (NATS-backed for distributed visibility)
+	eventBus := sharedruntime.NewNATSEventPublisher(natsConn)
 
-	// Initialize event bus
-	eventBus := sharedruntime.NewInMemoryEventBus()
+	// Initialize worker connection manager (tracks connected workers via NATS heartbeats)
+	workerConnMgr := sharedruntime.NewWorkerConnectionManager(natsConn, eventBus)
+	defer workerConnMgr.Stop()
 
 	// Initialize NATS orchestrator (sends tasks to real workers)
 	natsOrchestrator := workflowruntime.NewNATSOrchestrator(workflowRepo, natsConn, workerConnMgr, eventBus)
@@ -85,7 +85,7 @@ func main() {
 	workflowService := service.NewWorkflowService(workflowRepo, orchestrator)
 
 	// Initialize handlers
-	workflowHandler := handler.NewWorkflowHandler(workflowService, workerConnMgr)
+	workflowHandler := handler.NewWorkflowHandler(workflowService, workerConnMgr, natsConn)
 
 	// Setup router
 	router := gin.Default()
